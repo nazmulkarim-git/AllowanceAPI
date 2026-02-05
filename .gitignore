@@ -1,0 +1,7 @@
+node_modules/
+.env
+.env.*
+wrangler.toml
+apps/worker/.wrangler/
+.next/
+dist/

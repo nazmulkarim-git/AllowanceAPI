@@ -1,0 +1,13 @@
+{
+  "name": "allowanceapi",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm --workspace apps/dashboard run dev",
+    "build": "npm --workspace apps/dashboard run build && npm --workspace apps/worker run build",
+    "deploy:worker": "npm --workspace apps/worker run deploy",
+    "deploy:dashboard": "npm --workspace apps/dashboard run deploy"
+  }
+}
