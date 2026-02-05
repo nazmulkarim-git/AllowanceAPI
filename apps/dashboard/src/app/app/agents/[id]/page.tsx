@@ -103,16 +103,17 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
   <label className="text-xs text-gray-600">Webhook URL (optional)</label>
   <input className="rounded-md border px-3 py-2"
     placeholder="https://example.com/webhooks/allowance"
-    value={policy.webhook_url ?? ""}
-    onChange={(e)=>setPolicy({ ...policy, webhook_url: e.target.value })}
+    value={policy?.webhook_url ?? ""}
+    onChange={(e)=>setPolicy(prev => prev ? ({ ...prev, webhook_url: e.target.value }) : prev)}
   />
 </div>
 <div className="grid gap-1">
   <label className="text-xs text-gray-600">Webhook secret (optional header)</label>
   <input className="rounded-md border px-3 py-2"
     placeholder="shared-secret"
-    value={policy.webhook_secret ?? ""}
-    onChange={(e)=>setPolicy({ ...policy, webhook_secret: e.target.value })}
+    value={policy?.webhook_secret ?? ""}
+    onChange={(e)=>setPolicy(prev => prev ? ({ ...prev, webhook_secret: e.target.value }) : prev)}
+
   />
 </div>
 
