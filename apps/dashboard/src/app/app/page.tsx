@@ -37,7 +37,11 @@ export default function AppHome() {
 
   async function createAgent() {
     if (!name.trim()) return;
-    const { data: a, error } = await supabase.from("agents").insert({ name }).select("id").single();
+    const { data: a, error } = await supabase
+      .from("agents")
+      .insert({ name, user_id: userId })
+      .select("id")
+      .single();
     if (error) return alert(error.message);
     await supabase.from("agent_policies").insert({
       agent_id: a.id,

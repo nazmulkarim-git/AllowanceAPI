@@ -5,3 +5,4 @@ wrangler.toml
 apps/worker/.wrangler/
 .next/
 dist/
+Keys.txt

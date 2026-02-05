@@ -1,4 +1,0 @@
-c51sKhsRJCgIHENUlsdexefXVHyIJRCVSNvhX+lwjcA=
-qpLq02ufNDnE7_T0dv-gnCT5n8J2Bxx_Qk4IP3quhLI7SJqwOLi5K4DUgcshkLxZ
-https://allowanceapi-proxy.allowanceapi.workers.dev
-https://allowanceapi-proxy.allowanceapi.workers.dev/healthz
