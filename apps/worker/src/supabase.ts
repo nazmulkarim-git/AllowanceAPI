@@ -1,4 +1,4 @@
-type SupabaseResponse<T> = { data: T | null; error: any | null };
+//type SupabaseResponse<T> = { data: T | null; error: any | null };
 
 export class SupabaseAdmin {
   constructor(private url: string, private serviceRoleKey: string) {}
@@ -19,9 +19,7 @@ export class SupabaseAdmin {
     return json as T;
   }
 
-  async getKeyRecordByHash(
-    keyHash: string
-  ): Promise<{ agent_id: string; revoked_at: string | null } | null> {
+  async getKeyRecordByHash(keyHash: string): Promise<{ agent_id: string; revoked_at: string | null } | null> {
     const q = new URLSearchParams({
       select: "agent_id,revoked_at",
       key_hash: `eq.${keyHash}`,
@@ -30,21 +28,9 @@ export class SupabaseAdmin {
       limit: "1",
     });
 
-    // Retry a couple times to handle brief read-after-write lag
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const out = await this.request<SupabaseResponse<any[]>>(
-        `/rest/v1/allowance_keys?${q.toString()}`,
-        { method: "GET" }
-      );
-
-      const row = out.data?.[0] ?? null;
-      if (row) return row;
-
-      // small backoff: 200ms, 400ms
-      await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
-    }
-
-    return null;
+    // PostgREST returns an array, not {data,error}
+    const rows = await this.request<any[]>(`/rest/v1/allowance_keys?${q.toString()}`, { method: "GET" });
+    return rows?.[0] ?? null;
   }
 
   async getAgentWithPolicy(agentId: string): Promise<{
@@ -62,8 +48,9 @@ export class SupabaseAdmin {
       id: `eq.${agentId}`,
       limit: "1",
     });
-    const out = await this.request<SupabaseResponse<any[]>>(`/rest/v1/agents_with_policy?${q.toString()}`, { method: "GET" });
-    return out.data?.[0] ?? null;
+
+    const rows = await this.request<any[]>(`/rest/v1/agents_with_policy?${q.toString()}`, { method: "GET" });
+    return rows?.[0] ?? null;
   }
 
   async getEncryptedProviderKey(userId: string): Promise<string | null> {
@@ -72,10 +59,10 @@ export class SupabaseAdmin {
       user_id: `eq.${userId}`,
       limit: "1",
     });
-    const out = await this.request<SupabaseResponse<any[]>>(`/rest/v1/provider_keys?${q.toString()}`, { method: "GET" });
-    return out.data?.[0]?.encrypted_key ?? null;
-  }
 
+    const rows = await this.request<any[]>(`/rest/v1/provider_keys?${q.toString()}`, { method: "GET" });
+    return rows?.[0]?.encrypted_key ?? null;
+  }
   async insertSpendEvent(e: {
     agent_id: string;
     model: string;
