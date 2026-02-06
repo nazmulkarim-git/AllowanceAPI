@@ -135,9 +135,14 @@ router.get("/healthz", () => new Response("ok"));
 router.all("*", async (req: Request, env: Env, ctx: ExecutionContext) => {
   const allowanceKey = getBearerToken(req);
   if (!allowanceKey) return jsonError(401, "missing_key", "Missing Bearer allowance key.");
+  console.log("auth_present", !!(req.headers.get("authorization") || req.headers.get("Authorization")));
+  console.log("allowanceKey_type", typeof allowanceKey);
+  console.log("allowanceKey_prefix", (allowanceKey || "").slice(0, 12));
 
   // Hash the allowance key (never store raw key)
   const keyHash = await sha256Hex(`${env.ALLOWANCE_KEY_PEPPER}:${allowanceKey}`);
+  console.log("keyHash", keyHash);
+  console.log("pepper_prefix", (env.ALLOWANCE_KEY_PEPPER || "").slice(0, 6));
 
   const redis = new UpstashRedis(env.UPSTASH_REDIS_REST_URL, env.UPSTASH_REDIS_REST_TOKEN);
   const supa = new SupabaseAdmin(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
