@@ -27,10 +27,13 @@ function jsonError(status: number, code: string, message: string) {
 }
 
 function getBearerToken(req: Request): string | null {
-  const auth = req.headers.get("authorization") || req.headers.get("Authorization");
-  if (!auth) return null;
-  const m = auth.match(/^Bearer\s+(.+)$/i);
-  return m ? m[1] : null;
+  const authHeader = req.headers.get("authorization") || req.headers.get("Authorization");
+  if (!authHeader) return null;
+
+  const allowanceKey = authHeader.replace(/^Bearer\s+/i, "").trim();
+  if (!allowanceKey) return null;
+
+  return allowanceKey;
 }
 
 async function readJsonSafe(req: Request): Promise<any> {
