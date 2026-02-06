@@ -11,6 +11,7 @@ export class SupabaseAdmin {
         apikey: this.serviceRoleKey,
         Authorization: `Bearer ${this.serviceRoleKey}`,
         "Content-Type": "application/json",
+        "Accept": "application/json",
       },
     });
     const json = await res.json().catch(() => ({}));
@@ -29,14 +30,21 @@ export class SupabaseAdmin {
       limit: "1",
     });
 
-    const out = await this.request<SupabaseResponse<any[]>>(
-      `/rest/v1/allowance_keys?${q.toString()}`,
-      { method: "GET" }
-    );
-    console.log("getKeyRecordByHash_rows", out.data?.length ?? 0);
-    console.log("getKeyRecordByHash_first", out.data?.[0] ? { agent_id: out.data[0].agent_id, revoked_at: out.data[0].revoked_at } : null);
+    // Retry a couple times to handle brief read-after-write lag
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const out = await this.request<SupabaseResponse<any[]>>(
+        `/rest/v1/allowance_keys?${q.toString()}`,
+        { method: "GET" }
+      );
 
-    return out.data?.[0] ?? null;
+      const row = out.data?.[0] ?? null;
+      if (row) return row;
+
+      // small backoff: 200ms, 400ms
+      await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+    }
+
+    return null;
   }
 
   async getAgentWithPolicy(agentId: string): Promise<{
