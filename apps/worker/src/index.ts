@@ -162,11 +162,11 @@ router.all("*", async (req: Request, env: Env, ctx: ExecutionContext) => {
   console.log("auth_present", !!(req.headers.get("authorization") || req.headers.get("Authorization")));
   console.log("debug_request_id", req.headers.get("x-debug-request-id"));
   console.log("allowanceKey_type", typeof allowanceKey);
-  console.log("allowanceKey_prefix", allowanceKey.slice(0, 12));
+  //console.log("allowanceKey_prefix", allowanceKey.slice(0, 12));
 
   const keyHash = await sha256Hex(`${env.ALLOWANCE_KEY_PEPPER}:${allowanceKey}`);
-  console.log("keyHash", keyHash);
-  console.log("pepper_prefix", (env.ALLOWANCE_KEY_PEPPER || "").slice(0, 6));
+  //console.log("keyHash", keyHash);
+  //console.log("pepper_prefix", (env.ALLOWANCE_KEY_PEPPER || "").slice(0, 6));
 
   const redis = new UpstashRedis(env.UPSTASH_REDIS_REST_URL, env.UPSTASH_REDIS_REST_TOKEN);
   const supa = new SupabaseAdmin(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
@@ -240,7 +240,7 @@ router.all("*", async (req: Request, env: Env, ctx: ExecutionContext) => {
     }
 
     // Preflight policy checks
-    const pre = await enforcePreflight(redis, env.ALLOWANCE_KEY_PEPPER, policy, model, body);
+    pre = await enforcePreflight(redis, env.ALLOWANCE_KEY_PEPPER, policy, model, body);
     if (!pre.ok) {
       if (policy.webhookUrl) {
         ctx.waitUntil(sendWebhook({
