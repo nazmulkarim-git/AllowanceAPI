@@ -2,27 +2,45 @@ export class UpstashRedis {
   constructor(private url: string, private token: string) {}
 
   private async call<T>(parts: (string | number)[]): Promise<T> {
-    // Upstash REST API: POST https://<url>/<COMMAND>/<arg1>/<arg2>...
-    // Args must be URL-encoded.
-    const path =
-      "/" +
-      parts
-        .map((p) => encodeURIComponent(String(p)))
-        .join("/");
+    const path = "/" + parts.map((p) => encodeURIComponent(String(p))).join("/");
 
-    const res = await fetch(`${this.url}${path}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.token}`,
-      },
-    });
+    const attempt = async (): Promise<T> => {
+      const ac = new AbortController();
+      const timeout = setTimeout(() => ac.abort(), 5000); // 5s
 
-    const json = (await res.json().catch(() => ({}))) as any;
+      try {
+        const res = await fetch(`${this.url}${path}`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${this.token}`,
+          },
+          signal: ac.signal,
+        });
 
-    if (!res.ok) {
-      throw new Error(`Upstash error ${res.status}: ${JSON.stringify(json)}`);
+        const json = (await res.json().catch(() => ({}))) as any;
+
+        if (!res.ok) {
+          throw new Error(`Upstash error ${res.status}: ${JSON.stringify(json)}`);
+        }
+
+        return json?.result as T;
+      } finally {
+        clearTimeout(timeout);
+      }
+    };
+
+    let lastErr: any = null;
+    for (let i = 0; i < 3; i++) {
+      try {
+        return await attempt();
+      } catch (e) {
+        lastErr = e;
+        // backoff: 200ms, 400ms, 600ms
+        await new Promise((r) => setTimeout(r, 200 * (i + 1)));
+      }
     }
-    return json?.result as T;
+
+    throw lastErr;
   }
 
   async cmd<T = any>(command: string, ...args: any[]): Promise<T> {
