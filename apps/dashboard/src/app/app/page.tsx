@@ -29,8 +29,34 @@ export default function AppHome() {
     const p = await supabase.from("profiles").select("email,is_admin").eq("id", userId).single();
     setProfile(p.data as any);
 
-    const { data, error } = await supabase.from("agents_with_policy").select("*").order("created_at", { ascending: false });
-    if (!error) setAgents((data ?? []) as any);
+    const { data, error } = await supabase
+    .from("agents")
+    .select(`
+      id,
+      name,
+      status,
+      created_at,
+      user_id,
+      agent_policies (
+        balance_cents,
+        allowed_models,
+        circuit_breaker_n,
+        velocity_window_seconds,
+        velocity_cap_cents,
+        webhook_url,
+        webhook_secret
+      )
+    `)
+    .order("created_at", { ascending: false });
+
+  if (!error) {
+    // Flatten policy for existing UI shape (if needed)
+    const rows = (data ?? []).map((a: any) => ({
+      ...a,
+      ...(Array.isArray(a.agent_policies) ? a.agent_policies[0] : a.agent_policies ?? {}),
+    }));
+    setAgents(rows as any);
+  }
   }
 
   useEffect(() => { if (!loading) load(); }, [loading, userId]);
