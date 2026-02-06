@@ -33,6 +33,8 @@ export class SupabaseAdmin {
       `/rest/v1/allowance_keys?${q.toString()}`,
       { method: "GET" }
     );
+    console.log("getKeyRecordByHash_rows", out.data?.length ?? 0);
+    console.log("getKeyRecordByHash_first", out.data?.[0] ? { agent_id: out.data[0].agent_id, revoked_at: out.data[0].revoked_at } : null);
 
     return out.data?.[0] ?? null;
   }
