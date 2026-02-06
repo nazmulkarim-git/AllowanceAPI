@@ -11,7 +11,7 @@ export default function Layout({ children, userEmail, isAdmin }: { children: Rea
     <div className="min-h-screen bg-gray-50 text-gray-900">
       <header className="sticky top-0 z-10 border-b bg-white">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
-          <Link href="/app" className="font-semibold">AllowanceAPI</Link>
+          <Link href="/app" className="font-semibold">Forsig</Link>
           <nav className="flex items-center gap-4 text-sm">
             <Link href="/app" className="hover:underline">Agents</Link>
             <Link href="/app/settings" className="hover:underline">Settings</Link>

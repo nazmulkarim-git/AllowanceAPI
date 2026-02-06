@@ -1,4 +1,4 @@
-name = "allowanceapi-proxy"
+name = "forsig"
 main = "src/index.ts"
 compatibility_date = "2025-01-10"
 
@@ -10,6 +10,9 @@ UPSTASH_REDIS_REST_URL = "https://YOUR_UPSTASH_REDIS_REST_URL"
 UPSTASH_REDIS_REST_TOKEN = "YOUR_UPSTASH_REDIS_REST_TOKEN"
 SERVER_ENCRYPTION_KEY_B64 = "BASE64_32_BYTES"
 ALLOWANCE_KEY_PEPPER = "RANDOM_LONG_SECRET"
+PRICING_JSON = "{\"gpt-4o-mini\":{\"inputPer1M\":0.15,\"outputPer1M\":0.6}}"
+CORS_ALLOW_ORIGIN = "*"
+LOG_REQUESTS = "0"
 
 # Optional: set to "1" to enable request logging (beware PII)
 LOG_REQUESTS = "0"

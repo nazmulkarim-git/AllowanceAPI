@@ -1,5 +1,5 @@
 {
-  "name": "@allowanceapi/dashboard",
+  "name": "@forsig/dashboard",
   "private": true,
   "version": "0.1.0",
   "scripts": {

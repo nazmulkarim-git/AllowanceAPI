@@ -1,4 +1,4 @@
--- AllowanceAPI schema (Supabase / Postgres)
+-- Forsig schema (Supabase / Postgres)
 -- Run in Supabase SQL editor.
 
 create extension if not exists pgcrypto;

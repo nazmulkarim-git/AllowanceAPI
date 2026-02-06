@@ -1,4 +1,4 @@
-# Launch Guide (AllowanceAPI)
+# Launch Guide (Forsig)
 
 This repo contains:
 
@@ -24,8 +24,8 @@ Install:
 ## 1) Unzip and install dependencies
 
 ```bash
-unzip allowanceapi.zip
-cd allowanceapi
+unzip forsig.zip
+cd forsig
 npm install
 ```
 
@@ -126,7 +126,7 @@ npm --workspace apps/worker run deploy
 ```
 
 Wrangler will output your Worker URL, e.g.:
-`https://allowanceapi-proxy.YOURNAME.workers.dev`
+`https://forsig.YOURNAME.workers.dev`
 
 ---
 
@@ -143,7 +143,7 @@ Wrangler will output your Worker URL, e.g.:
 
 Example (OpenAI SDK style):
 ```bash
-export OPENAI_BASE_URL="https://allowanceapi-proxy.YOURNAME.workers.dev"
+export OPENAI_BASE_URL="https://forsig.YOURNAME.workers.dev"
 export OPENAI_API_KEY="sk_allow_..."
 ```
 

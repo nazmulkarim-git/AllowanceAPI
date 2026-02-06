@@ -23,15 +23,30 @@ type Env = {
   SERVER_ENCRYPTION_KEY_B64: string;
   ALLOWANCE_KEY_PEPPER: string;
   LOG_REQUESTS?: string;
+  CORS_ALLOW_ORIGIN?: string; // e.g. "*", or "https://forsig.com"
 };
 
 const router = Router();
 
-function jsonError(status: number, code: string, message: string) {
-  return new Response(JSON.stringify({ error: { code, message } }), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
+function corsHeaders(env: Env): Record<string, string> {
+  const origin = env.CORS_ALLOW_ORIGIN || "*";
+  return {
+    "Access-Control-Allow-Origin": origin,
+    "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+    "Access-Control-Allow-Headers": "Authorization,Content-Type,Idempotency-Key,X-Idempotency-Key,X-Request-Id",
+    "Access-Control-Expose-Headers": "X-Allowance-Agent-Id,X-Allowance-Reserved-Cents,X-Allowance-Cost-Cents,X-Allowance-Balance-Cents,X-Forsig-Request-Id",
+  };
+}
+
+function logEvent(env: Env, payload: Record<string, unknown>) {
+  if (env.LOG_REQUESTS === "1") console.log(JSON.stringify(payload));
+}
+
+function jsonError(status: number, code: string, message: string, env?: Env, requestId?: string) {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (env) Object.assign(headers, corsHeaders(env));
+  if (requestId) headers["X-Forsig-Request-Id"] = requestId;
+  return new Response(JSON.stringify({ error: { code, message }, request_id: requestId }), { status, headers });
 }
 
 function getBearerToken(req: Request): string | null {
@@ -154,20 +169,32 @@ function sseProxyAndCaptureUsage(
 
 router.get("/healthz", () => new Response("ok"));
 
+router.options("*", (req: Request, env: Env) => {
+  return new Response(null, { status: 204, headers: corsHeaders(env) });
+});
+
 router.all("*", async (req: Request, env: Env, ctx: ExecutionContext) => {
+  const requestId = req.headers.get("X-Request-Id") || crypto.randomUUID();
   const allowanceKey = getBearerToken(req);
-  if (!allowanceKey) return jsonError(401, "missing_key", "Missing Bearer allowance key.");
+  if (!allowanceKey) return jsonError(401, "missing_key", "Missing Bearer allowance key.", env, requestId);
 
   // Debug logs (safe-ish). Remove when stable.
-  console.log("auth_present", !!(req.headers.get("authorization") || req.headers.get("Authorization")));
-  console.log("debug_request_id", req.headers.get("x-debug-request-id"));
-  console.log("allowanceKey_type", typeof allowanceKey);
+  if (env.LOG_REQUESTS === "1") {
+    console.log(JSON.stringify({
+      at: "request_start",
+      requestId,
+      method: req.method,
+      path: new URL(req.url).pathname,
+    }));
+  }
+  //console.log("auth_present", !!(req.headers.get("authorization") || req.headers.get("Authorization")));
+  //console.log("debug_request_id", req.headers.get("x-debug-request-id"));
+  //console.log("allowanceKey_type", typeof allowanceKey);
   //console.log("allowanceKey_prefix", allowanceKey.slice(0, 12));
-
-  const keyHash = await sha256Hex(`${env.ALLOWANCE_KEY_PEPPER}:${allowanceKey}`);
   //console.log("keyHash", keyHash);
   //console.log("pepper_prefix", (env.ALLOWANCE_KEY_PEPPER || "").slice(0, 6));
 
+  const keyHash = await sha256Hex(`${env.ALLOWANCE_KEY_PEPPER}:${allowanceKey}`);
   const redis = new UpstashRedis(env.UPSTASH_REDIS_REST_URL, env.UPSTASH_REDIS_REST_TOKEN);
   const supa = new SupabaseAdmin(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 
@@ -193,7 +220,7 @@ router.all("*", async (req: Request, env: Env, ctx: ExecutionContext) => {
     agentId = await getCachedAgentId(redis, keyHash);
     if (!agentId) {
       const rec = await supa.getKeyRecordByHash(keyHash);
-      if (!rec || rec.revoked_at) return jsonError(403, "invalid_key", "Invalid or revoked allowance key.");
+      if (!rec || rec.revoked_at) return jsonError(403, "invalid_key", "Invalid or revoked allowance key.", env, requestId);
       agentId = rec.agent_id;
       await cacheKeyToAgent(redis, keyHash, agentId, 300);
     }
@@ -202,7 +229,7 @@ router.all("*", async (req: Request, env: Env, ctx: ExecutionContext) => {
     policy = await getCachedPolicy(redis, keyHash);
     if (!policy) {
       const row = await supa.getAgentWithPolicy(agentId);
-      if (!row) return jsonError(403, "invalid_agent", "Agent not found.");
+      if (!row) return jsonError(403, "invalid_agent", "Agent not found.", env, requestId);
 
       // respect redis freeze flag immediately
       const frozen = await redis.cmd<string | null>("GET", `allow:frozen:${row.id}`);
@@ -226,22 +253,47 @@ router.all("*", async (req: Request, env: Env, ctx: ExecutionContext) => {
       await cachePolicy(redis, keyHash, policy, 60);
     }
 
-    // Idempotency (non-stream only): replay response if cached
+    // Idempotency: prevent duplicates. For non-stream, also replay cached responses.
     const idemKey = getIdempotencyKey(req);
-    if (idemKey && !wantsStream) {
+    if (idemKey) {
       const idem = await idempotencyCheck(redis, policy.agentId, idemKey);
-      if (idem.hit && "cached" in idem) {
-        const h = new Headers(idem.cached.headers || {});
-        return new Response(idem.cached.body, { status: idem.cached.status, headers: h });
-      }
+
       if (idem.hit && "inProgress" in idem) {
-        return jsonError(409, "idempotency_in_progress", "A request with this Idempotency-Key is already in progress.");
+        return jsonError(409, "idempotency_in_progress", "A request with this Idempotency-Key is already in progress.", env, requestId);
+      }
+
+      // For streaming we do NOT replay cached responses (stream cannot be replayed safely).
+      if (wantsStream) {
+        if (idem.hit && "cached" in idem) {
+          return jsonError(409, "idempotency_replay_not_supported", "Idempotency replay is not supported for streaming requests.", env, requestId);
+        }
+      } else {
+        // Non-stream: replay cached response.
+        if (idem.hit && "cached" in idem) {
+          const h = new Headers(idem.cached.headers || {});
+          for (const [k, v] of Object.entries(corsHeaders(env))) h.set(k, v);
+          h.set("X-Forsig-Request-Id", requestId);
+          return new Response(idem.cached.body, { status: idem.cached.status, headers: h });
+        }
       }
     }
 
     // Preflight policy checks
     pre = await enforcePreflight(redis, env.ALLOWANCE_KEY_PEPPER, policy, model, body);
+
     if (!pre.ok) {
+      // ✅ 6.4 BLOCKED log
+      logEvent(env, {
+        at: "blocked",
+        requestId,
+        agentId: policy.agentId,
+        model,
+        wantsStream,
+        code: pre.code,
+        status: pre.status,
+        reason: pre.message,
+      });
+
       if (policy.webhookUrl) {
         ctx.waitUntil(sendWebhook({
           webhookUrl: policy.webhookUrl,
@@ -253,22 +305,33 @@ router.all("*", async (req: Request, env: Env, ctx: ExecutionContext) => {
           timestamp: new Date().toISOString(),
         }));
       }
-      return jsonError(pre.status, pre.code, pre.message);
+
+      return jsonError(pre.status, pre.code, pre.message, env, requestId);
     }
+
+    // ✅ 6.4 ALLOWED log
+    logEvent(env, {
+      at: "allowed",
+      requestId,
+      agentId: policy.agentId,
+      model,
+      wantsStream,
+      reserveCents: pre.reserveCents,
+    });
   } catch (e: any) {
     console.error("redis_failure_preflight", String(e?.message || e));
-    return jsonError(503, "redis_unavailable", "AllowanceAPI enforcement store unavailable. Try again.");
+    return jsonError(503, "redis_unavailable", "Forsig enforcement store unavailable. Try again.", env, requestId);
   }
 
   // Get user's master provider key from Supabase
   const encryptedKey = await supa.getEncryptedProviderKey(policy.userId);
-  if (!encryptedKey) return jsonError(400, "missing_provider_key", "User has not configured a provider key in the dashboard.");
+  if (!encryptedKey) return jsonError(400, "missing_provider_key", "User has not configured a provider key in the dashboard.", env, requestId);
 
   let masterKey: string;
   try {
     masterKey = await decryptAesGcmB64(encryptedKey, env.SERVER_ENCRYPTION_KEY_B64);
   } catch {
-    return jsonError(500, "decrypt_failed", "Failed to decrypt provider key.");
+    return jsonError(500, "decrypt_failed", "Failed to decrypt provider key.", env, requestId);
   }
 
   // Forward to OpenAI (OpenAI-compatible proxy)
@@ -310,7 +373,7 @@ router.all("*", async (req: Request, env: Env, ctx: ExecutionContext) => {
           promptTokens = Number((usage as any).prompt_tokens ?? (usage as any).input_tokens ?? 0);
           completionTokens = Number((usage as any).completion_tokens ?? (usage as any).output_tokens ?? 0);
           if (promptTokens || completionTokens) {
-            actualCostCents = estimateCostCents(model, promptTokens, completionTokens);
+            actualCostCents = estimateCostCents(model, promptTokens, completionTokens, env);
           }
         }
 
@@ -351,8 +414,10 @@ router.all("*", async (req: Request, env: Env, ctx: ExecutionContext) => {
     );
 
     const outHeaders = new Headers(upstream.headers);
+    for (const [k, v] of Object.entries(corsHeaders(env))) outHeaders.set(k, v);
     outHeaders.set("X-Allowance-Agent-Id", policy.agentId);
     outHeaders.set("X-Allowance-Reserved-Cents", String(pre.reserveCents));
+    outHeaders.set("X-Forsig-Request-Id", requestId);
     return new Response(stream, { status: upstream.status, headers: outHeaders });
   }
 
@@ -369,7 +434,7 @@ router.all("*", async (req: Request, env: Env, ctx: ExecutionContext) => {
     const usage = j?.usage;
     promptTokens = Number(usage?.prompt_tokens ?? usage?.input_tokens ?? 0);
     completionTokens = Number(usage?.completion_tokens ?? usage?.output_tokens ?? 0);
-    if (promptTokens || completionTokens) actualCostCents = estimateCostCents(model, promptTokens, completionTokens);
+    if (promptTokens || completionTokens) actualCostCents = estimateCostCents(model, promptTokens, completionTokens, env);
   } catch {
     // keep reserve
   }
@@ -381,7 +446,7 @@ router.all("*", async (req: Request, env: Env, ctx: ExecutionContext) => {
     finalBalanceCents = settled.finalBalanceCents;
   } catch (e: any) {
     console.error("redis_failure_settle", String(e?.message || e));
-    return jsonError(503, "redis_unavailable", "AllowanceAPI enforcement store unavailable. Try again.");
+    return jsonError(503, "redis_unavailable", "AllowanceAPI enforcement store unavailable. Try again.", env, requestId);
   }
 
   // Persist to Supabase (best-effort; don't fail response)
@@ -401,9 +466,11 @@ router.all("*", async (req: Request, env: Env, ctx: ExecutionContext) => {
 
   // Return upstream response (pass-through) with allowance headers
   const outHeaders = new Headers(upstream.headers);
+  for (const [k, v] of Object.entries(corsHeaders(env))) outHeaders.set(k, v);
   outHeaders.set("X-Allowance-Agent-Id", policy.agentId);
   outHeaders.set("X-Allowance-Cost-Cents", String(actualCostCents));
   outHeaders.set("X-Allowance-Balance-Cents", String(finalBalanceCents));
+  outHeaders.set("X-Forsig-Request-Id", requestId);
 
   // Store idempotent response (non-stream only)
   const idemKey = getIdempotencyKey(req);

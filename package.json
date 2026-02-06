@@ -1,5 +1,5 @@
 {
-  "name": "allowanceapi",
+  "name": "forsig",
   "private": true,
   "workspaces": [
     "apps/*"

@@ -3,7 +3,7 @@ import Link from "next/link";
 export default function Home() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-16">
-      <h1 className="text-3xl font-semibold">AllowanceAPI</h1>
+      <h1 className="text-3xl font-semibold">Forsig</h1>
       <p className="mt-3 text-gray-700">
         Financial firewall for AI agents: circuit breaker, model gating, velocity caps, and an OpenAI-compatible proxy.
       </p>

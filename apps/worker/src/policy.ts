@@ -126,20 +126,26 @@ export async function enforcePreflight(
   await redis.cmd("ZADD", zkey, String(now), `${reservationId}:${reserveCents}`);
   await redis.cmd("EXPIRE", zkey, String(winSec + 60));
 
-  // also reserve balance (optimistic) so concurrent requests don't overspend
+  // Atomically reserve balance so concurrent requests can't overspend
   const balKey = `${KEY_PREFIX}bal:${policy.agentId}`;
-  const currentBal = await redis.cmd<string | null>("GET", balKey);
-  const bal = currentBal ? Number(currentBal) : policy.balanceCents;
-  const newBal = bal - reserveCents;
-  if (newBal < 0) {
-    // rollback reservation
+
+  // Ensure balKey exists (first time) so DECRBY works as expected.
+  const existing = await redis.cmd<string | null>("GET", balKey);
+  if (existing === null) {
+    // Seed from policy.balanceCents if not already cached
+    await redis.cmd("SET", balKey, String(policy.balanceCents));
+    await redis.cmd("EXPIRE", balKey, "86400");
+  }
+
+  const newBal = await redis.cmd<number>("DECRBY", balKey, String(reserveCents));
+  await redis.cmd("EXPIRE", balKey, "86400");
+
+  if (Number(newBal) < 0) {
+    // Revert, rollback velocity reservation, and reject
+    await redis.cmd("INCRBY", balKey, String(reserveCents));
     await redis.cmd("ZREM", zkey, `${reservationId}:${reserveCents}`);
     return { ok: false, status: 402, code: "insufficient_balance", message: "Insufficient allowance balance.", tripEvent: "insufficient_balance" };
   }
-  await redis.cmd("SET", balKey, String(newBal));
-  await redis.cmd("EXPIRE", balKey, "86400");
-
-  return { ok: true, reserveCents, promptHash };
 }
 
 export async function settlePostflight(
@@ -148,23 +154,38 @@ export async function settlePostflight(
   reserveCents: number,
   actualCostCents: number
 ): Promise<{ finalBalanceCents: number }> {
-  const balKey = `allow:bal:${policy.agentId}`;
-  const currentBal = await redis.cmd<string | null>("GET", balKey);
-  const bal = currentBal ? Number(currentBal) : policy.balanceCents;
+  const balKey = `${KEY_PREFIX}bal:${policy.agentId}`;
 
-  // We already subtracted reserve preflight.
-  // If actual < reserve -> refund. If actual > reserve -> subtract the difference (may go negative; then freeze).
-  const delta = reserveCents - actualCostCents; // refund if positive
-  let finalBal = bal + delta;
-  await redis.cmd("SET", balKey, String(finalBal));
+  // Ensure balKey exists
+  const existing = await redis.cmd<string | null>("GET", balKey);
+  if (existing === null) {
+    await redis.cmd("SET", balKey, String(policy.balanceCents));
+    await redis.cmd("EXPIRE", balKey, "86400");
+  }
+
+  // We already subtracted reserveCents in preflight.
+  // delta > 0 => refund. delta < 0 => charge extra.
+  const delta = reserveCents - actualCostCents;
+
+  let finalBal: number;
+
+  if (delta > 0) {
+    finalBal = await redis.cmd<number>("INCRBY", balKey, String(delta));
+  } else if (delta < 0) {
+    finalBal = await redis.cmd<number>("DECRBY", balKey, String(-delta));
+  } else {
+    const cur = await redis.cmd<string | null>("GET", balKey);
+    finalBal = cur ? Number(cur) : 0;
+  }
+
   await redis.cmd("EXPIRE", balKey, "86400");
 
   if (finalBal < 0) {
-    // Freeze agent (soft) - dashboard can replenish
-    await redis.cmd("SET", `allow:frozen:${policy.agentId}`, "1");
-    await redis.cmd("EXPIRE", `allow:frozen:${policy.agentId}`, "86400");
-    finalBal = 0;
+    await redis.cmd("SET", `${KEY_PREFIX}frozen:${policy.agentId}`, "1");
+    await redis.cmd("EXPIRE", `${KEY_PREFIX}frozen:${policy.agentId}`, "86400");
     await redis.cmd("SET", balKey, "0");
+    await redis.cmd("EXPIRE", balKey, "86400");
+    finalBal = 0;
   }
 
   return { finalBalanceCents: Math.max(0, Math.floor(finalBal)) };
