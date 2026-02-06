@@ -6,7 +6,7 @@ export class UpstashRedis {
 
     const attempt = async (): Promise<T> => {
       const ac = new AbortController();
-      const timeout = setTimeout(() => ac.abort(), 5000); // 5s
+      const timeout = setTimeout(() => ac.abort(), 15000);
 
       try {
         const res = await fetch(`${this.url}${path}`, {
@@ -30,7 +30,7 @@ export class UpstashRedis {
     };
 
     let lastErr: any = null;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       try {
         return await attempt();
       } catch (e) {

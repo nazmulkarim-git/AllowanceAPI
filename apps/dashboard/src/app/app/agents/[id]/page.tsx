@@ -62,19 +62,20 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
   async function savePolicy() {
     if (!policy) return;
     const allowed_models = modelsText.split(",").map(s=>s.trim()).filter(Boolean);
-    const { error } = await supabase.from("agent_policies").upsert({
-      agent_id: params.id,
-      balance_cents: policy.balance_cents,
-      allowed_models,
-      circuit_breaker_n: policy.circuit_breaker_n,
-      velocity_window_seconds: policy.velocity_window_seconds,
-      velocity_cap_cents: policy.velocity_cap_cents,
-      webhook_url: policy.webhook_url ?? null,
-      webhook_secret: policy.webhook_secret ?? null,
-      updated_at: new Date().toISOString(),
-    });
-    if (error) return alert(error.message);
-    alert("Saved.");
+    const res = await authedFetch("/api/save-policy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentId: params.id,
+          policy: {
+            ...policy,
+            allowed_models,
+          },
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) return alert(json?.error?.message ?? "Failed");
+      alert("Saved.");
   }
 
   async function killSwitch() {

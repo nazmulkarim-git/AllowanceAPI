@@ -12,6 +12,7 @@ import {
   settlePostflight,
   Policy,
 } from "./policy";
+import { sendWebhook } from "./webhook";
 
 type Env = {
   OPENAI_API_BASE: string;
@@ -239,8 +240,21 @@ router.all("*", async (req: Request, env: Env, ctx: ExecutionContext) => {
     }
 
     // Preflight policy checks
-    pre = await enforcePreflight(redis, env.ALLOWANCE_KEY_PEPPER, policy, model, body);
-    if (!pre.ok) return jsonError(pre.status, pre.code, pre.message);
+    const pre = await enforcePreflight(redis, env.ALLOWANCE_KEY_PEPPER, policy, model, body);
+    if (!pre.ok) {
+      if (policy.webhookUrl) {
+        ctx.waitUntil(sendWebhook({
+          webhookUrl: policy.webhookUrl,
+          webhookSecret: policy.webhookSecret,
+          event: pre.code,
+          agentId: policy.agentId,
+          model,
+          reason: pre.message,
+          timestamp: new Date().toISOString(),
+        }));
+      }
+      return jsonError(pre.status, pre.code, pre.message);
+    }
   } catch (e: any) {
     console.error("redis_failure_preflight", String(e?.message || e));
     return jsonError(503, "redis_unavailable", "AllowanceAPI enforcement store unavailable. Try again.");

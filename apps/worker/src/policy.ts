@@ -46,6 +46,11 @@ export async function enforcePreflight(
   model: string,
   requestBody: any
 ): Promise<EnforcementResult> {
+  // Always honor Redis frozen flag (works even if policy object is cached)
+  const frozen = await redis.cmd<string | null>("GET", `${KEY_PREFIX}frozen:${policy.agentId}`);
+  if (frozen) {
+    return { ok: false, status: 403, code: "key_frozen", message: "This allowance key is frozen.", tripEvent: "key_frozen" };
+  }
   if (policy.status !== "active") {
     return { ok: false, status: 403, code: "key_frozen", message: "This allowance key is frozen.", tripEvent: "key_frozen" };
   }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/serverSupabase";
+import { upstashServer, invalidateAgentCaches } from "@/lib/serverRedis";
 
 export async function POST(req: Request) {
   try {
@@ -22,6 +23,23 @@ export async function POST(req: Request) {
     if (e1) return NextResponse.json({ error: { message: e1.message } }, { status: 400 });
 
     const { error: e2 } = await supa.from("agents").update({ status: "frozen", updated_at: new Date().toISOString() }).eq("id", agentId);
+    
+    // ---- Redis write-through for instant enforcement ----
+    const redis = upstashServer();
+
+    const keys = await supa
+      .from("allowance_keys")
+      .select("key_hash")
+      .eq("agent_id", agentId)
+      .is("revoked_at", null);
+
+    const keyHashes = (keys.data ?? []).map((k: any) => k.key_hash).filter(Boolean);
+
+    // force enforcement state
+    await redis.cmd("SETEX", `allow:bal:${agentId}`, "86400", "0");
+    await redis.cmd("SETEX", `allow:frozen:${agentId}`, "86400", "1");
+
+    await invalidateAgentCaches(redis, keyHashes);
     if (e2) return NextResponse.json({ error: { message: e2.message } }, { status: 400 });
 
     return NextResponse.json({ ok: true });
