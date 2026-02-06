@@ -18,13 +18,22 @@ export class SupabaseAdmin {
     return json as T;
   }
 
-  async getKeyRecordByHash(keyHash: string): Promise<{ agent_id: string; revoked_at: string | null } | null> {
+  async getKeyRecordByHash(
+    keyHash: string
+  ): Promise<{ agent_id: string; revoked_at: string | null } | null> {
     const q = new URLSearchParams({
       select: "agent_id,revoked_at",
       key_hash: `eq.${keyHash}`,
+      revoked_at: "is.null",
+      order: "created_at.desc",
       limit: "1",
     });
-    const out = await this.request<SupabaseResponse<any[]>>(`/rest/v1/allowance_keys?${q.toString()}`, { method: "GET" });
+
+    const out = await this.request<SupabaseResponse<any[]>>(
+      `/rest/v1/allowance_keys?${q.toString()}`,
+      { method: "GET" }
+    );
+
     return out.data?.[0] ?? null;
   }
 

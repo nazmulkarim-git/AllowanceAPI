@@ -136,6 +136,7 @@ router.all("*", async (req: Request, env: Env, ctx: ExecutionContext) => {
   const allowanceKey = getBearerToken(req);
   if (!allowanceKey) return jsonError(401, "missing_key", "Missing Bearer allowance key.");
   console.log("auth_present", !!(req.headers.get("authorization") || req.headers.get("Authorization")));
+  console.log("debug_request_id", req.headers.get("x-debug-request-id"));
   console.log("allowanceKey_type", typeof allowanceKey);
   console.log("allowanceKey_prefix", (allowanceKey || "").slice(0, 12));
 
