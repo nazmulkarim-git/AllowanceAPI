@@ -103,14 +103,22 @@ export async function settlePostflight(
   const delta = actualCents - reservedCents;
 
   const balanceKey = `${KEY_PREFIX}balance:${policy.agentId}`;
-  let balance = await redis.cmd<number>("GET", balanceKey);
-  if (balance === null) balance = policy.balanceCents;
+  const raw = await redis.cmd<string | null>("GET", balanceKey);
+  let balance = raw === null ? policy.balanceCents : Number(raw);
 
-  balance -= actualCents;
+  if (!Number.isFinite(balance) || !Number.isInteger(balance)) {
+    // Reset if corrupted
+    balance = policy.balanceCents;
+  }
+
+  balance = balance - actualCents;
   await redis.cmd("SET", balanceKey, String(balance));
 
   const velocityKey = `${KEY_PREFIX}velocity:${policy.agentId}`;
-  await redis.cmd("INCRBY", velocityKey, actualCents);
+  const incr = Math.trunc(Number(actualCents));
+  if (!Number.isFinite(incr)) throw new Error("Invalid incr value");
+  await redis.cmd("INCRBY", velocityKey, String(incr));
+  //await redis.cmd("INCRBY", velocityKey, actualCents);
   await redis.cmd(
     "EXPIRE",
     velocityKey,
