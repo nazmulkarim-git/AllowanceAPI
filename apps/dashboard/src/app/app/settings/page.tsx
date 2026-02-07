@@ -34,15 +34,15 @@ export default function Settings() {
     if (!openaiKey.trim()) return;
     setBusy(true);
     try {
-      const res = await authedFetch("/api/admin/me", {
+      const res = await authedFetch("/api/provider-key", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ openai_api_key: openaiKey }),
+        body: JSON.stringify({ provider: "openai", apiKey: openaiKey }),
       });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        return alert(j?.error?.message ?? "Failed to save key");
-      }
+
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) return alert(j?.error?.message ?? "Failed to save key");
+
       setOpenaiKey("");
       await load();
     } finally {
