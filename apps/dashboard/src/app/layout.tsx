@@ -2,8 +2,8 @@ import "../styles/globals.css";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Forsig Dashboard",
-  description: "Financial firewall for AI agents.",
+  title: "Forsig",
+  description: "Real-time control plane for AI and API keys.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
