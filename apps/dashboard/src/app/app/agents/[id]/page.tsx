@@ -41,16 +41,24 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
       setModelsText(((pol.data as any).allowed_models ?? []).join(","));
     }
 
-    const { data: keys } = await supabase.from("allowance_keys").select("prefix,revoked_at").eq("agent_id", params.id).order("created_at", { ascending: false }).limit(1);
+    const { data: keys } = await supabase
+      .from("allowance_keys")
+      .select("prefix,revoked_at")
+      .eq("agent_id", params.id)
+      .order("created_at", { ascending: false })
+      .limit(1);
     if (!keys?.length || keys[0].revoked_at) setAllowanceKey(null);
   }
 
-  useEffect(() => { if (!loading) load(); }, [loading, userId]);
+  useEffect(() => {
+    if (!loading) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, userId]);
 
   async function mintKey() {
     const res = await authedFetch("/api/mint-key", {
       method: "POST",
-      headers: { "Content-Type":"application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ agentId: params.id }),
     });
     const json = await res.json();
@@ -61,32 +69,35 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
 
   async function savePolicy() {
     if (!policy) return;
-    const allowed_models = modelsText.split(",").map(s=>s.trim()).filter(Boolean);
+    const allowed_models = modelsText
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
     const res = await authedFetch("/api/save-policy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          agentId: params.id,
-          policy: {
-            ...policy,
-            allowed_models,
-          },
-        }),
-      });
-      const json = await res.json();
-      if (!res.ok) return alert(json?.error?.message ?? "Failed");
-      alert("Saved.");
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        agentId: params.id,
+        policy: {
+          ...policy,
+          allowed_models,
+        },
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) return alert(json?.error?.message ?? "Failed");
+    alert("Saved.");
   }
 
   async function killSwitch() {
     const res = await authedFetch("/api/kill-switch", {
       method: "POST",
-      headers: { "Content-Type":"application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ agentId: params.id }),
     });
     const json = await res.json();
     if (!res.ok) return alert(json?.error?.message ?? "Failed");
-    setPolicy(prev => prev ? ({ ...prev, balance_cents: 0 }) : prev);
+    setPolicy((prev) => (prev ? { ...prev, balance_cents: 0 } : prev));
     alert("Agent frozen and balance set to $0.");
   }
 
@@ -95,123 +106,217 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
 
   return (
     <Layout userEmail={email} isAdmin={isAdmin}>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">{agent?.name ?? "Agent"}</h1>
-          <p className="mt-1 text-sm text-gray-600">Configure allowance policies and keys.</p>
+      <div className="grid gap-6">
+        <div className="ui-card p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-semibold tracking-tight text-white">{agent?.name ?? "Agent"}</h1>
+                {agent?.status ? <span className="ui-pill">{agent.status}</span> : null}
+              </div>
+              <p className="mt-1 text-sm text-zinc-400">Configure allowance policies and keys.</p>
+              {agent?.id ? <div className="mt-2 text-[11px] text-zinc-600">{agent.id}</div> : null}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {agent?.status === "frozen" ? (
+                <button
+                  className="ui-btn"
+                  onClick={async () => {
+                    const res = await authedFetch("/api/freeze-toggle", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ agentId: params.id, freeze: false }),
+                    });
+                    if (!res.ok) return alert("Failed");
+                    await load();
+                  }}
+                >
+                  Unfreeze
+                </button>
+              ) : (
+                <button
+                  className="ui-btn"
+                  onClick={async () => {
+                    const res = await authedFetch("/api/freeze-toggle", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ agentId: params.id, freeze: true }),
+                    });
+                    if (!res.ok) return alert("Failed");
+                    await load();
+                  }}
+                >
+                  Freeze
+                </button>
+              )}
+
+              <button
+                className="ui-btn border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/15"
+                onClick={() => {
+                  const ok = confirm("Kill switch will freeze the agent and set balance to $0. Continue?");
+                  if (ok) killSwitch();
+                }}
+              >
+                Kill switch
+              </button>
+            </div>
+          </div>
         </div>
-        <div className="grid gap-1">
-  <label className="text-xs text-gray-600">Webhook URL (optional)</label>
-  <input className="rounded-md border px-3 py-2"
-    placeholder="https://example.com/webhooks/allowance"
-    value={policy?.webhook_url ?? ""}
-    onChange={(e)=>setPolicy(prev => prev ? ({ ...prev, webhook_url: e.target.value }) : prev)}
-  />
-</div>
-<div className="grid gap-1">
-  <label className="text-xs text-gray-600">Webhook secret (optional header)</label>
-  <input className="rounded-md border px-3 py-2"
-    placeholder="shared-secret"
-    value={policy?.webhook_secret ?? ""}
-    onChange={(e)=>setPolicy(prev => prev ? ({ ...prev, webhook_secret: e.target.value }) : prev)}
 
-  />
-</div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          {/* Policy */}
+          <div className="ui-card p-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-white">Allowance policy</h2>
+              <span className="ui-pill">live</span>
+            </div>
 
-<div className="flex gap-2">
-  {agent?.status === "frozen" ? (
-    <button onClick={async ()=>{ 
-      const res = await authedFetch("/api/freeze-toggle", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ agentId: params.id, status: "active" })});
-      const j = await res.json();
-      if (!res.ok) return alert(j?.error?.message ?? "Failed");
-      setAgent(prev => prev ? ({ ...prev, status: "active" }) : prev);
-      alert("Unfrozen.");
-    }} className="rounded-md border px-4 py-2 hover:bg-gray-50">
-      Unfreeze
-    </button>
-  ) : (
-    <button onClick={async ()=>{ 
-      const res = await authedFetch("/api/freeze-toggle", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ agentId: params.id, status: "frozen" })});
-      const j = await res.json();
-      if (!res.ok) return alert(j?.error?.message ?? "Failed");
-      setAgent(prev => prev ? ({ ...prev, status: "frozen" }) : prev);
-      alert("Frozen.");
-    }} className="rounded-md border px-4 py-2 hover:bg-gray-50">
-      Freeze
-    </button>
-  )}
-  <button onClick={killSwitch} className="rounded-md bg-red-600 px-4 py-2 text-white hover:bg-red-700">
-    Kill Switch
-  </button>
-</div>
-      </div>
-
-      <div className="mt-6 grid gap-4">
-        <section className="rounded-xl border bg-white p-4">
-          <h2 className="font-medium">Allowance Key</h2>
-          <p className="mt-1 text-sm text-gray-600">Use this key as <code>Authorization: Bearer ...</code> when calling your proxy.</p>
-          <div className="mt-3 flex items-center gap-2">
-            <button onClick={mintKey} className="rounded-md border px-3 py-2 hover:bg-gray-50">Generate key</button>
-            {allowanceKey ? (
-              <input readOnly className="w-full rounded-md border px-3 py-2 font-mono text-xs" value={allowanceKey} />
+            {!policy ? (
+              <div className="mt-4 text-sm text-zinc-400">No policy found.</div>
             ) : (
-              <span className="text-sm text-gray-600">No active key generated yet.</span>
+              <div className="mt-4 grid gap-4">
+                <div className="grid gap-2">
+                  <label className="ui-label">Balance (cents)</label>
+                  <input
+                    className="ui-input"
+                    inputMode="numeric"
+                    value={policy.balance_cents}
+                    onChange={(e) =>
+                      setPolicy((prev) => (prev ? { ...prev, balance_cents: Number(e.target.value || 0) } : prev))
+                    }
+                  />
+                  <div className="text-xs text-zinc-500">Displayed as dollars in the app. Stored as cents.</div>
+                </div>
+
+                <div className="grid gap-2">
+                  <label className="ui-label">Allowed models (comma-separated)</label>
+                  <input className="ui-input" value={modelsText} onChange={(e) => setModelsText(e.target.value)} />
+                  <div className="text-xs text-zinc-500">Example: gpt-4o-mini, gpt-4.1-mini</div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid gap-2">
+                    <label className="ui-label">Velocity window (seconds)</label>
+                    <input
+                      className="ui-input"
+                      inputMode="numeric"
+                      value={policy.velocity_window_seconds}
+                      onChange={(e) =>
+                        setPolicy((prev) =>
+                          prev ? { ...prev, velocity_window_seconds: Number(e.target.value || 0) } : prev
+                        )
+                      }
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <label className="ui-label">Velocity cap (cents)</label>
+                    <input
+                      className="ui-input"
+                      inputMode="numeric"
+                      value={policy.velocity_cap_cents}
+                      onChange={(e) =>
+                        setPolicy((prev) => (prev ? { ...prev, velocity_cap_cents: Number(e.target.value || 0) } : prev))
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-2">
+                  <label className="ui-label">Circuit breaker threshold (N)</label>
+                  <input
+                    className="ui-input"
+                    inputMode="numeric"
+                    value={policy.circuit_breaker_n}
+                    onChange={(e) =>
+                      setPolicy((prev) => (prev ? { ...prev, circuit_breaker_n: Number(e.target.value || 0) } : prev))
+                    }
+                  />
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid gap-2">
+                    <label className="ui-label">Webhook URL (optional)</label>
+                    <input
+                      className="ui-input"
+                      placeholder="https://example.com/webhooks/allowance"
+                      value={policy.webhook_url ?? ""}
+                      onChange={(e) => setPolicy((prev) => (prev ? { ...prev, webhook_url: e.target.value } : prev))}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <label className="ui-label">Webhook secret (optional header)</label>
+                    <input
+                      className="ui-input"
+                      placeholder="shared-secret"
+                      value={policy.webhook_secret ?? ""}
+                      onChange={(e) => setPolicy((prev) => (prev ? { ...prev, webhook_secret: e.target.value } : prev))}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <button className="ui-btn ui-btn-primary" onClick={savePolicy}>
+                    Save policy
+                  </button>
+                  <button className="ui-btn" onClick={load}>
+                    Reload
+                  </button>
+                  <div className="sm:ml-auto text-xs text-zinc-500">
+                    Tip: keep velocity low for early testing, then ramp.
+                  </div>
+                </div>
+              </div>
             )}
           </div>
-          <p className="mt-2 text-xs text-gray-500">Keys are shown only once. Store it safely.</p>
-        </section>
 
-        <section className="rounded-xl border bg-white p-4">
-          <h2 className="font-medium">Policy</h2>
-          {!policy ? <p className="mt-2 text-sm text-gray-600">Loading...</p> : (
-            <div className="mt-3 grid gap-3">
-              <div className="grid gap-1">
-                <label className="text-xs text-gray-600">Balance (cents)</label>
-                <input className="rounded-md border px-3 py-2"
-                  type="number"
-                  value={policy.balance_cents}
-                  onChange={(e)=>setPolicy({ ...policy, balance_cents: Number(e.target.value) })}
-                />
-              </div>
+          {/* Keys */}
+          <div className="ui-card p-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-white">Allowance key</h2>
+              <span className="ui-pill">auth</span>
+            </div>
 
-              <div className="grid gap-1">
-                <label className="text-xs text-gray-600">Allowed models (comma-separated)</label>
-                <input className="rounded-md border px-3 py-2"
-                  value={modelsText}
-                  onChange={(e)=>setModelsText(e.target.value)}
-                />
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <div className="grid gap-1">
-                  <label className="text-xs text-gray-600">Circuit breaker N</label>
-                  <input className="rounded-md border px-3 py-2" type="number"
-                    value={policy.circuit_breaker_n}
-                    onChange={(e)=>setPolicy({ ...policy, circuit_breaker_n: Number(e.target.value) })}
-                  />
+            <div className="mt-4 grid gap-3">
+              {allowanceKey ? (
+                <div className="rounded-2xl border border-white/10 bg-black/40 p-4">
+                  <div className="text-xs text-zinc-400">Minted key (copy now)</div>
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <code className="ui-kbd break-all">{allowanceKey}</code>
+                    <button
+                      className="ui-btn"
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(allowanceKey);
+                        alert("Copied.");
+                      }}
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <div className="mt-3 text-xs text-zinc-500">
+                    This is shown once. Store it securely.
+                  </div>
                 </div>
-                <div className="grid gap-1">
-                  <label className="text-xs text-gray-600">Velocity window (seconds)</label>
-                  <input className="rounded-md border px-3 py-2" type="number"
-                    value={policy.velocity_window_seconds}
-                    onChange={(e)=>setPolicy({ ...policy, velocity_window_seconds: Number(e.target.value) })}
-                  />
+              ) : (
+                <div className="ui-empty">
+                  <div className="ui-empty-title">No active key</div>
+                  <div className="ui-empty-subtitle">Mint a new key to authenticate agent calls.</div>
                 </div>
-                <div className="grid gap-1">
-                  <label className="text-xs text-gray-600">Velocity cap (cents/window)</label>
-                  <input className="rounded-md border px-3 py-2" type="number"
-                    value={policy.velocity_cap_cents}
-                    onChange={(e)=>setPolicy({ ...policy, velocity_cap_cents: Number(e.target.value) })}
-                  />
-                </div>
-              </div>
+              )}
 
-              <div className="flex gap-2">
-                <button onClick={savePolicy} className="rounded-md bg-black px-4 py-2 text-white">Save</button>
+              <button className="ui-btn ui-btn-primary" onClick={mintKey}>
+                Mint new key
+              </button>
+
+              <div className="ui-card p-4">
+                <div className="text-xs text-zinc-400">Example header</div>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <code className="ui-kbd truncate">Authorization: Bearer &lt;allowance_key&gt;</code>
+                </div>
               </div>
             </div>
-          )}
-        </section>
+          </div>
+        </div>
       </div>
     </Layout>
   );

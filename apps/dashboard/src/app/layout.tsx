@@ -23,8 +23,16 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={inter.className}>
-      <body className="min-h-screen bg-white text-neutral-950 antialiased">
+    <html lang="en" className="dark" suppressHydrationWarning>
+      <body className={`${inter.className} min-h-screen bg-black text-zinc-100 antialiased`}>
+        {/* Ambient background */}
+        <div className="pointer-events-none fixed inset-0 -z-10">
+          <div className="absolute inset-0 bg-grid opacity-[0.45]" />
+          <div className="absolute -left-48 -top-48 h-[520px] w-[520px] rounded-full bg-white/10 blur-3xl" />
+          <div className="absolute -bottom-56 -right-56 h-[620px] w-[620px] rounded-full bg-white/10 blur-3xl" />
+          <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(255,255,255,0.10),transparent_60%)]" />
+        </div>
+
         {children}
       </body>
     </html>

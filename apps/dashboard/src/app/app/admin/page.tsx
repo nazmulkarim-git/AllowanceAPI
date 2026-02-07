@@ -33,7 +33,7 @@ export default function Admin() {
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const msg = json?.error?.message || json?.error || `Request failed (${res.status})`;
+      const msg = json?.error?.message ?? res.statusText;
       throw new Error(msg);
     }
     return json;
@@ -42,283 +42,239 @@ export default function Admin() {
   async function load() {
     if (!session?.access_token) return;
 
-    // 1) Verify admin
-    try {
-      await adminFetch("/api/admin/me");
-      setIsAdmin(true);
-    } catch (e: any) {
-      setIsAdmin(false);
-      // if not admin, show message (don’t redirect immediately; user can navigate away)
-      return;
-    }
+    const prof = await adminFetch("/api/admin/me");
+    setProfile(prof?.profile);
+    setIsAdmin(!!prof?.profile?.is_admin);
 
-    // 2) Load data
-    try {
-      const [uJson, aJson] = await Promise.all([
-        adminFetch("/api/admin/users"),
-        adminFetch("/api/admin/agents"),
-      ]);
-      setUsers(uJson.data ?? []);
-      setAgents(aJson.data ?? []);
-    } catch (e: any) {
-      alert(e?.message ?? "Failed to load admin data");
-    }
+    const us = await adminFetch("/api/admin/users");
+    setUsers(us?.users ?? []);
+
+    const as = await adminFetch("/api/admin/agents");
+    setAgents(as?.agents ?? []);
   }
 
-  async function agentControl(action: any) {
-    setBusyAgentId(action?.agentId ?? null);
+  useEffect(() => {
+    if (!loading) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, session?.access_token]);
+
+  async function agentControl(args: { type: "freeze" | "unfreeze" | "kill"; agentId: string }) {
+    setBusyAgentId(args.agentId);
     try {
       await adminFetch("/api/admin/agent-control", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(action),
+        body: JSON.stringify(args),
       });
       await load();
     } catch (e: any) {
-      alert(e?.message ?? "Action failed");
+      alert(e?.message ?? "Failed");
     } finally {
       setBusyAgentId(null);
     }
   }
 
   async function revokeKey() {
-    const keyHash = prompt("Paste key_hash to revoke (from allowance_keys table):");
-    if (!keyHash) return;
+    const key_hash = prompt("Enter key_hash to revoke");
+    if (!key_hash) return;
     try {
       await adminFetch("/api/admin/revoke-key", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key_hash: keyHash.trim() }),
+        body: JSON.stringify({ key_hash }),
       });
       alert("Revoked.");
-      await load();
     } catch (e: any) {
-      alert(e?.message ?? "Failed to revoke");
+      alert(e?.message ?? "Failed");
     }
   }
 
   async function setBalance(agentId: string) {
-    const v = prompt("Set new balance in cents (e.g. 200 = $2.00):", "0");
-    if (v === null) return;
-    const cents = Number(v);
-    if (!Number.isFinite(cents) || cents < 0) return alert("Invalid number.");
-    await agentControl({ type: "set_balance", agentId, balance_cents: cents });
+    const v = prompt("New balance in cents (e.g. 200 = $2.00)");
+    if (!v) return;
+    const balance_cents = Number(v);
+    if (Number.isNaN(balance_cents)) return alert("Invalid number");
+    try {
+      await adminFetch("/api/admin/agent-control", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: "set_balance", agentId, balance_cents }),
+      });
+      await load();
+    } catch (e: any) {
+      alert(e?.message ?? "Failed");
+    }
   }
 
   async function editPolicy(agent: any) {
-    // Light-weight prompt UI for now (fast to ship for YC).
-    // You can replace with a modal later.
-    const allowedModelsStr = prompt(
-      "Allowed models (comma separated). Leave empty to keep unchanged:",
-      Array.isArray(agent.allowed_models) ? agent.allowed_models.join(",") : ""
-    );
-    if (allowedModelsStr === null) return;
+    const models = prompt("allowed_models (comma-separated)", (agent.allowed_models ?? []).join(",")) ?? "";
+    const circuit_breaker_n = Number(prompt("circuit_breaker_n", String(agent.circuit_breaker_n ?? 10)) ?? "10");
+    const velocity_window_seconds = Number(prompt("velocity_window_seconds", String(agent.velocity_window_seconds ?? 3600)) ?? "3600");
+    const velocity_cap_cents = Number(prompt("velocity_cap_cents", String(agent.velocity_cap_cents ?? 50)) ?? "50");
 
-    const cbStr = prompt(
-      "Circuit breaker N (repeats before trip). Leave empty to keep unchanged:",
-      String(agent.circuit_breaker_n ?? "")
-    );
-    if (cbStr === null) return;
-
-    const windowStr = prompt(
-      "Velocity window seconds (e.g. 3600). Leave empty to keep unchanged:",
-      String(agent.velocity_window_seconds ?? "")
-    );
-    if (windowStr === null) return;
-
-    const capStr = prompt(
-      "Velocity cap cents in that window (e.g. 50 = $0.50). Leave empty to keep unchanged:",
-      String(agent.velocity_cap_cents ?? "")
-    );
-    if (capStr === null) return;
-
-    const webhookUrl = prompt(
-      "Webhook URL (leave empty to clear, or keep unchanged by typing SAME):",
-      agent.webhook_url ?? ""
-    );
-    if (webhookUrl === null) return;
-
-    const webhookSecret = prompt(
-      "Webhook secret (optional). Leave empty to clear, or keep unchanged by typing SAME:",
-      agent.webhook_secret ?? ""
-    );
-    if (webhookSecret === null) return;
-
-    const policy: any = {};
-
-    // Allowed models
-    if (allowedModelsStr.trim() !== "") {
-      policy.allowed_models = allowedModelsStr
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
+    try {
+      await adminFetch("/api/admin/agent-control", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "edit_policy",
+          agentId: agent.id,
+          allowed_models: models.split(",").map((s: string) => s.trim()).filter(Boolean),
+          circuit_breaker_n,
+          velocity_window_seconds,
+          velocity_cap_cents,
+        }),
+      });
+      await load();
+    } catch (e: any) {
+      alert(e?.message ?? "Failed");
     }
-
-    // Circuit breaker
-    if (cbStr.trim() !== "") {
-      const n = Number(cbStr);
-      if (!Number.isFinite(n) || n < 1) return alert("Invalid circuit breaker N.");
-      policy.circuit_breaker_n = n;
-    }
-
-    // Velocity window
-    if (windowStr.trim() !== "") {
-      const w = Number(windowStr);
-      if (!Number.isFinite(w) || w < 10) return alert("Invalid window seconds.");
-      policy.velocity_window_seconds = w;
-    }
-
-    // Velocity cap
-    if (capStr.trim() !== "") {
-      const c = Number(capStr);
-      if (!Number.isFinite(c) || c < 0) return alert("Invalid velocity cap cents.");
-      policy.velocity_cap_cents = c;
-    }
-
-    // Webhook url/secret
-    // "SAME" means keep unchanged. Empty means clear.
-    if (webhookUrl !== "SAME") policy.webhook_url = webhookUrl.trim() === "" ? null : webhookUrl.trim();
-    if (webhookSecret !== "SAME") policy.webhook_secret = webhookSecret.trim() === "" ? null : webhookSecret.trim();
-
-    await agentControl({ type: "set_policy", agentId: agent.id, policy });
   }
-
-  useEffect(() => {
-    if (!loading) load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, session?.user?.id]);
 
   if (!isAdmin) {
     return (
       <Layout userEmail={email} isAdmin={false}>
-        <h1 className="text-2xl font-semibold">Admin</h1>
-        <p className="mt-2 text-sm text-gray-600">You are not an admin.</p>
-        <button
-          className="mt-4 rounded-lg border bg-white px-3 py-2 text-sm hover:bg-gray-50"
-          onClick={() => router.push("/app")}
-        >
-          Back to App
-        </button>
+        <div className="ui-card p-6">
+          <h1 className="text-2xl font-semibold tracking-tight text-white">Admin</h1>
+          <p className="mt-2 text-sm text-zinc-400">You are not an admin.</p>
+          <button className="mt-5 ui-btn ui-btn-primary" onClick={() => router.push("/app")}>
+            Back to App
+          </button>
+        </div>
       </Layout>
     );
   }
 
   return (
     <Layout userEmail={email} isAdmin={true}>
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Admin Control Panel</h1>
-        <div className="flex gap-2">
-          <button
-            className="rounded-lg border bg-white px-3 py-2 text-sm hover:bg-gray-50"
-            onClick={() => load()}
-          >
-            Refresh
-          </button>
-          <button
-            className="rounded-lg border bg-white px-3 py-2 text-sm hover:bg-gray-50"
-            onClick={revokeKey}
-          >
-            Revoke Key (by key_hash)
-          </button>
-        </div>
-      </div>
-
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        {/* USERS */}
-        <div className="rounded-xl border bg-white p-4">
-          <h2 className="font-medium">Users ({users.length})</h2>
-          <div className="mt-3 space-y-2 text-sm">
-            {users.map((u) => (
-              <div key={u.id} className="flex items-center justify-between border-b pb-2">
-                <div>
-                  <div className="font-medium">{u.email}</div>
-                  <div className="text-xs text-gray-500">{u.id}</div>
-                </div>
-                <div className="text-xs">{u.is_admin ? "admin" : "user"}</div>
-              </div>
-            ))}
-            {users.length === 0 && <div className="text-xs text-gray-500">No users found.</div>}
+      <div className="grid gap-6">
+        <div className="ui-card p-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight text-white">Admin Control Panel</h1>
+              <p className="mt-1 text-sm text-zinc-400">Users, agents, and emergency controls.</p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <button className="ui-btn" onClick={() => load()}>
+                Refresh
+              </button>
+              <button className="ui-btn" onClick={revokeKey}>
+                Revoke key (by key_hash)
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* AGENTS */}
-        <div className="rounded-xl border bg-white p-4">
-          <h2 className="font-medium">Agents ({agents.length})</h2>
+        <div className="grid gap-4 lg:grid-cols-2">
+          {/* USERS */}
+          <div className="ui-card p-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-white">Users</h2>
+              <span className="ui-pill">{users.length}</span>
+            </div>
 
-          <div className="mt-3 space-y-3 text-sm">
-            {agents.map((a) => {
-              const busy = busyAgentId === a.id;
-              const bal = ((Number(a.balance_cents ?? 0)) / 100).toFixed(2);
-              const models = Array.isArray(a.allowed_models) ? a.allowed_models.join(", ") : "";
+            {users.length === 0 ? (
+              <div className="mt-4 text-sm text-zinc-400">No users found.</div>
+            ) : (
+              <div className="mt-4 overflow-hidden rounded-2xl border border-white/10">
+                <table className="w-full">
+                  <thead>
+                    <tr>
+                      <th className="ui-th">Email</th>
+                      <th className="ui-th">Role</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.map((u) => (
+                      <tr key={u.id} className="hover:bg-white/[0.03]">
+                        <td className="ui-td">
+                          <div className="font-medium text-zinc-100">{u.email}</div>
+                          <div className="mt-1 text-[11px] text-zinc-500">{u.id}</div>
+                        </td>
+                        <td className="ui-td">
+                          <span className="ui-pill">{u.is_admin ? "admin" : "user"}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
 
-              return (
-                <div key={a.id} className="rounded-lg border p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-medium">{a.name}</div>
-                      <div className="mt-1 text-xs text-gray-500">
-                        ${bal} • <span className="font-medium">{a.status}</span> • user {String(a.user_id).slice(0, 6)}…
-                      </div>
-                      <div className="mt-1 text-xs text-gray-500">
-                        models: {models || "—"}
-                      </div>
-                      <div className="mt-1 text-[11px] text-gray-400">
-                        {a.id}
-                      </div>
-                    </div>
+          {/* AGENTS */}
+          <div className="ui-card p-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-white">Agents</h2>
+              <span className="ui-pill">{agents.length}</span>
+            </div>
 
-                    <div className="flex flex-wrap justify-end gap-2">
-                      {a.status === "frozen" ? (
+            <div className="mt-4 space-y-3">
+              {agents.map((a) => {
+                const busy = busyAgentId === a.id;
+                const bal = ((Number(a.balance_cents ?? 0)) / 100).toFixed(2);
+                const models = Array.isArray(a.allowed_models) ? a.allowed_models.join(", ") : "";
+
+                return (
+                  <div key={a.id} className="ui-card ui-card-hover p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <div className="text-sm font-semibold text-white">{a.name}</div>
+                          <span className="ui-pill">{a.status}</span>
+                        </div>
+                        <div className="mt-1 text-xs text-zinc-400">
+                          ${bal} • <span className="text-zinc-200">user</span> {String(a.user_id).slice(0, 6)}…
+                        </div>
+                        <div className="mt-1 text-xs text-zinc-500">models: {models || "—"}</div>
+                        <div className="mt-1 text-[11px] text-zinc-600">{a.id}</div>
+                      </div>
+
+                      <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
+                        {a.status === "frozen" ? (
+                          <button
+                            disabled={busy}
+                            className="ui-btn"
+                            onClick={() => agentControl({ type: "unfreeze", agentId: a.id })}
+                          >
+                            Unfreeze
+                          </button>
+                        ) : (
+                          <button
+                            disabled={busy}
+                            className="ui-btn"
+                            onClick={() => agentControl({ type: "freeze", agentId: a.id })}
+                          >
+                            Freeze
+                          </button>
+                        )}
+
+                        <button disabled={busy} className="ui-btn" onClick={() => setBalance(a.id)}>
+                          Set balance
+                        </button>
+
+                        <button disabled={busy} className="ui-btn" onClick={() => editPolicy(a)}>
+                          Edit policy
+                        </button>
+
                         <button
                           disabled={busy}
-                          className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
-                          onClick={() => agentControl({ type: "unfreeze", agentId: a.id })}
+                          className="ui-btn border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/15"
+                          onClick={() => {
+                            const ok = confirm("Kill = set balance to 0 and freeze. Continue?");
+                            if (ok) agentControl({ type: "kill", agentId: a.id });
+                          }}
                         >
-                          Unfreeze
+                          Kill
                         </button>
-                      ) : (
-                        <button
-                          disabled={busy}
-                          className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
-                          onClick={() => agentControl({ type: "freeze", agentId: a.id })}
-                        >
-                          Freeze
-                        </button>
-                      )}
-
-                      <button
-                        disabled={busy}
-                        className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
-                        onClick={() => setBalance(a.id)}
-                      >
-                        Set Balance
-                      </button>
-
-                      <button
-                        disabled={busy}
-                        className="rounded-md border px-2 py-1 text-xs hover:bg-gray-50 disabled:opacity-50"
-                        onClick={() => editPolicy(a)}
-                      >
-                        Edit Policy
-                      </button>
-
-                      <button
-                        disabled={busy}
-                        className="rounded-md border px-2 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
-                        onClick={() => {
-                          const ok = confirm("Kill = set balance to 0 and freeze. Continue?");
-                          if (ok) agentControl({ type: "kill", agentId: a.id });
-                        }}
-                      >
-                        Kill
-                      </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
 
-            {agents.length === 0 && <div className="text-xs text-gray-500">No agents found.</div>}
+              {agents.length === 0 ? <div className="text-sm text-zinc-400">No agents found.</div> : null}
+            </div>
           </div>
         </div>
       </div>
