@@ -65,6 +65,8 @@ export class SupabaseAdmin {
   }
   async insertSpendEvent(e: {
     agent_id: string;
+    user_id: string;
+    provider: string;
     model: string;
     prompt_tokens: number;
     completion_tokens: number;

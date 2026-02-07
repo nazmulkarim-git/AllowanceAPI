@@ -16,17 +16,17 @@ const DEFAULT_PRICES: Record<string, ModelPrice> = {
 let cachedPrices: Record<string, ModelPrice> | null = null;
 
 export function loadPrices(env?: { PRICING_JSON?: string }): Record<string, ModelPrice> {
-  if (cachedPrices) return cachedPrices;
+  if (cachedPrices !== null) return cachedPrices;
 
   if (env?.PRICING_JSON) {
     try {
       const parsed = JSON.parse(env.PRICING_JSON);
-      if (parsed && typeof parsed === "object") {
-        cachedPrices = parsed;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        cachedPrices = parsed as Record<string, ModelPrice>;
         return cachedPrices;
       }
     } catch {
-      // fall back to defaults
+      // fall back to defaultsS
     }
   }
 

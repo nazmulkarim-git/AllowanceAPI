@@ -1,18 +1,16 @@
+// apps/worker/src/errors.ts
 export function jsonError(
   status: number,
+  code: string,
   message: string,
-  extra?: Record<string, unknown>
+  env?: any,
+  requestId?: string
 ): Response {
   return new Response(
     JSON.stringify({
-      error: message,
-      ...extra,
+      error: { code, message },
+      request_id: requestId,
     }),
-    {
-      status,
-      headers: {
-        "Content-Type": "application/json",
-      },
-    }
+    { status, headers: { "content-type": "application/json" } }
   );
 }

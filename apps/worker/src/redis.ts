@@ -13,7 +13,7 @@ export class UpstashRedis {
         body: JSON.stringify(args),
       });
 
-      const json = await res.json().catch(() => ({}));
+      const json: any = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         // 🔥 THIS is what we need: print the exact command + args
