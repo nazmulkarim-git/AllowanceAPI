@@ -4,8 +4,30 @@ import { upstashServer, invalidateAgentCaches } from "@/lib/serverRedis";
 
 export async function POST(req: Request) {
   try {
-    const { agentId, status } = await req.json();
-    if (!agentId || !status) return NextResponse.json({ error: { message: "Missing agentId/status" } }, { status: 400 });
+    const body = await req.json();
+    const agentId = body.agentId;
+
+    // Accept either {status:"active"|"frozen"} OR {freeze:true|false}
+    const status =
+      typeof body.status === "string"
+        ? body.status
+        : typeof body.freeze === "boolean"
+          ? (body.freeze ? "frozen" : "active")
+          : null;
+
+    if (!agentId || !status) {
+      return NextResponse.json(
+        { error: { message: "Missing agentId and status (or freeze boolean)" } },
+        { status: 400 }
+      );
+    }
+
+    if (status !== "active" && status !== "frozen") {
+      return NextResponse.json(
+        { error: { message: "Invalid status" } },
+        { status: 400 }
+      );
+    }
 
     const authHeader = req.headers.get("authorization");
     if (!authHeader) return NextResponse.json({ error: { message: "Missing auth" } }, { status: 401 });
@@ -18,7 +40,7 @@ export async function POST(req: Request) {
     if (agent.error) return NextResponse.json({ error: { message: "Agent not found" } }, { status: 404 });
     if (agent.data.user_id !== userData.user.id) return NextResponse.json({ error: { message: "Forbidden" } }, { status: 403 });
 
-    const nextStatus = status === "active" ? "active" : "frozen";
+    const nextStatus = status;
     const { error } = await supa.from("agents").update({ status: nextStatus, updated_at: new Date().toISOString() }).eq("id", agentId);
 
     // ---- Redis write-through for instant enforcement ----
