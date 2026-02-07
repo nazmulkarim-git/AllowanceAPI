@@ -10,7 +10,7 @@ import {
   Zap,
   Webhook,
   Sparkles,
-  Check,
+  CheckCircle2,
 } from "lucide-react";
 import { useMemo } from "react";
 
@@ -18,15 +18,13 @@ function cn(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-function GradientOrb({ className, delay = 0 }: { className?: string; delay?: number }) {
+function LogoMark() {
+  // Simple premium mark; replace with your SVG anytime
   return (
-    <motion.div
-      aria-hidden
-      className={cn("pointer-events-none absolute rounded-full blur-3xl", className)}
-      initial={{ opacity: 0, scale: 0.92 }}
-      animate={{ opacity: 1, scale: 1 }}
-      transition={{ duration: 1.1, delay }}
-    />
+    <span className="relative inline-flex h-9 w-9 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04]">
+      <span className="absolute inset-0 rounded-2xl bg-white/10 blur-xl opacity-0 transition group-hover:opacity-100" />
+      <Sparkles className="h-4.5 w-4.5 text-white" />
+    </span>
   );
 }
 
@@ -55,6 +53,16 @@ function FeatureCard({ title, body, icon }: { title: string; body: string; icon:
   );
 }
 
+function SectionTitle({ kicker, title, sub }: { kicker: string; title: string; sub: string }) {
+  return (
+    <div className="max-w-2xl">
+      <div className="text-xs font-semibold tracking-wide text-zinc-400">{kicker}</div>
+      <h2 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-3xl">{title}</h2>
+      <p className="mt-2 text-sm text-zinc-400 sm:text-base">{sub}</p>
+    </div>
+  );
+}
+
 export default function MarketingHome() {
   const reduce = useReducedMotion();
 
@@ -70,130 +78,157 @@ export default function MarketingHome() {
     [reduce]
   );
 
-  const floaty = reduce ? "" : "animate-floaty";
-
   return (
     <div className="relative">
-      {/* Hero */}
+      {/* TOP HEADER */}
+      <header className="sticky top-0 z-40 border-b border-white/10 bg-black/35 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+          <Link href="/" className="group inline-flex items-center gap-2">
+            <LogoMark />
+            <div className="leading-tight">
+              <div className="text-sm font-semibold tracking-tight text-white">Forsig</div>
+              <div className="text-[11px] text-zinc-400">Allowance-native agents</div>
+            </div>
+          </Link>
+
+          <nav className="hidden items-center gap-2 sm:flex">
+            <a href="#features" className="ui-btn !px-3 !py-2">
+              Features
+            </a>
+            <a href="#security" className="ui-btn !px-3 !py-2">
+              Security
+            </a>
+            <a href="#faq" className="ui-btn !px-3 !py-2">
+              FAQ
+            </a>
+          </nav>
+
+          <div className="flex items-center gap-2">
+            <Link href="/app" className="ui-btn ui-btn-primary !px-4 !py-2">
+              Open Dashboard <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      {/* HERO */}
       <section className="relative overflow-hidden">
         <div className="mx-auto max-w-6xl px-4 py-14 sm:py-20">
-          <div className="relative">
-            <GradientOrb className="left-[-120px] top-[-120px] h-[420px] w-[420px] bg-white/10 animate-glow" />
-            <GradientOrb className="right-[-160px] bottom-[-160px] h-[520px] w-[520px] bg-white/10 animate-glow" delay={0.15} />
+          <div className="flex flex-col gap-10 lg:flex-row lg:items-start lg:justify-between">
+            <motion.div {...fadeUp} className="max-w-2xl">
+              <div className="flex flex-wrap items-center gap-2">
+                <Pill icon={<Sparkles className="h-4 w-4" />}>Allowance-native</Pill>
+                <Pill icon={<ShieldCheck className="h-4 w-4" />}>Safety by default</Pill>
+                <Pill icon={<Webhook className="h-4 w-4" />}>Webhooks</Pill>
+              </div>
 
-            <div className="flex flex-col gap-10 lg:flex-row lg:items-start lg:justify-between">
-              <motion.div {...fadeUp} className="max-w-2xl">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Pill icon={<Sparkles className="h-4 w-4" />}>Allowance-native</Pill>
-                  <Pill icon={<ShieldCheck className="h-4 w-4" />}>Safety by default</Pill>
-                  <Pill icon={<Webhook className="h-4 w-4" />}>Webhooks</Pill>
+              <h1 className="mt-6 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
+                Ship AI agents safely — with programmable budgets and circuit breakers.
+              </h1>
+
+              <p className="mt-4 text-base leading-relaxed text-zinc-300 sm:text-lg">
+                Forsig makes spend and velocity constraints first-class. Give agents an allowance, set model
+                guardrails, add a kill switch — and deploy with confidence.
+              </p>
+
+              <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
+                <Link href="/app" className="ui-btn ui-btn-primary px-5 py-3">
+                  Open Dashboard <ArrowRight className="h-4 w-4" />
+                </Link>
+                <a href="#features" className="ui-btn px-5 py-3">
+                  See how it works
+                </a>
+                <span className="text-xs text-zinc-500">
+                  YC-ready control plane for agent spend.
+                </span>
+              </div>
+
+              <div className="mt-8 grid gap-3 sm:grid-cols-3">
+                {[
+                  ["Policy-first", "Budgets, velocity caps, circuit breakers"],
+                  ["Keyed access", "Issue & revoke allowance keys"],
+                  ["Audit-ready", "Predictable controls, clean logs"],
+                ].map(([t, d]) => (
+                  <div key={t} className="ui-card p-4">
+                    <div className="text-sm font-semibold text-zinc-100">{t}</div>
+                    <div className="mt-1 text-xs text-zinc-400">{d}</div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+
+            {/* FLOATING PREVIEW */}
+            <motion.div
+              className={cn("relative w-full max-w-xl lg:max-w-md", reduce ? "" : "animate-floaty")}
+              initial={reduce ? undefined : { opacity: 0, y: 12 }}
+              animate={reduce ? undefined : { opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, ease: "easeOut" }}
+            >
+              <div className="ui-card overflow-hidden p-5">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-white">Policy Preview</div>
+                    <div className="text-xs text-zinc-400">Agent: “Support Concierge”</div>
+                  </div>
+                  <span className="ui-pill">live</span>
                 </div>
 
-                <h1 className="mt-6 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-                  Ship AI agents safely — with programmable budgets and circuit breakers.
-                </h1>
-                <p className="mt-4 text-base leading-relaxed text-zinc-300 sm:text-lg">
-                  Forsig makes spend and velocity constraints first-class. Give agents an allowance, set model
-                  guardrails, add a kill switch — and deploy with confidence.
-                </p>
-
-                <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <Link href="/app" className="ui-btn ui-btn-primary px-5 py-3">
-                    Open Dashboard <ArrowRight className="h-4 w-4" />
-                  </Link>
-                  <a href="#pricing" className="ui-btn px-5 py-3">
-                    View Pricing
-                  </a>
-                  <span className="text-xs text-zinc-500">
-                    Built for teams that need control, speed, and auditability.
-                  </span>
-                </div>
-
-                <div className="mt-8 grid gap-3 sm:grid-cols-3">
+                <div className="mt-5 space-y-3">
                   {[
-                    ["Policy-first", "Budgets, velocity caps, circuit breakers"],
-                    ["Keyed access", "Issue & revoke allowance keys"],
-                    ["Audit-ready", "Predictable controls, clear defaults"],
-                  ].map(([t, d]) => (
-                    <div key={t} className="ui-card p-4">
-                      <div className="text-sm font-semibold text-zinc-100">{t}</div>
-                      <div className="mt-1 text-xs text-zinc-400">{d}</div>
+                    ["Balance", "$2.00"],
+                    ["Velocity", "$0.50 / 60m"],
+                    ["Circuit breaker", "10 requests"],
+                    ["Models", "gpt-4o-mini"],
+                  ].map(([k, v]) => (
+                    <div
+                      key={k}
+                      className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3"
+                    >
+                      <div className="text-xs text-zinc-400">{k}</div>
+                      <div className="text-sm font-semibold text-zinc-100">{v}</div>
                     </div>
                   ))}
                 </div>
-              </motion.div>
 
-              {/* Floating policy preview */}
-              <motion.div
-                className={cn("relative w-full max-w-xl lg:max-w-md", floaty)}
-                initial={reduce ? undefined : { opacity: 0, y: 12 }}
-                animate={reduce ? undefined : { opacity: 1, y: 0 }}
-                transition={{ duration: 0.7, ease: "easeOut" }}
-              >
-                <div className="ui-card overflow-hidden p-5">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-semibold text-white">Policy Preview</div>
-                      <div className="text-xs text-zinc-400">Agent: “Support Concierge”</div>
-                    </div>
-                    <span className="ui-pill">live</span>
-                  </div>
-
-                  <div className="mt-5 space-y-3">
-                    {[
-                      ["Balance", "$2.00"],
-                      ["Velocity", "$0.50 / 60m"],
-                      ["Circuit breaker", "10 requests"],
-                      ["Models", "gpt-4o-mini"],
-                    ].map(([k, v]) => (
-                      <div key={k} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
-                        <div className="text-xs text-zinc-400">{k}</div>
-                        <div className="text-sm font-semibold text-zinc-100">{v}</div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="mt-5 rounded-2xl border border-white/10 bg-black/40 p-4">
-                    <div className="text-xs text-zinc-400">Webhook</div>
-                    <div className="mt-1 flex items-center justify-between gap-2">
-                      <code className="ui-kbd truncate">POST /webhooks/allowance</code>
-                      <span className="ui-pill">signed</span>
-                    </div>
-                  </div>
-
-                  <div className="mt-5">
-                    <div className="relative h-2 overflow-hidden rounded-full bg-white/10">
-                      <motion.div
-                        className="absolute left-0 top-0 h-full w-1/2 bg-white"
-                        initial={{ width: "36%" }}
-                        animate={{ width: ["36%", "62%", "44%"] }}
-                        transition={{ duration: 5.5, repeat: Infinity, ease: "easeInOut" }}
-                      />
-                    </div>
-                    <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-500">
-                      <span>Allowance used</span>
-                      <span>~48%</span>
-                    </div>
+                <div className="mt-5 rounded-2xl border border-white/10 bg-black/40 p-4">
+                  <div className="text-xs text-zinc-400">Webhook</div>
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <code className="ui-kbd truncate">POST /webhooks/allowance</code>
+                    <span className="ui-pill">signed</span>
                   </div>
                 </div>
 
-                <div className="pointer-events-none absolute inset-0 -z-10 rounded-[28px] bg-white/10 blur-2xl opacity-30" />
-              </motion.div>
-            </div>
+                <div className="mt-5">
+                  <div className="relative h-2 overflow-hidden rounded-full bg-white/10">
+                    <motion.div
+                      className="absolute left-0 top-0 h-full w-1/2 bg-white"
+                      initial={{ width: "36%" }}
+                      animate={{ width: ["36%", "62%", "44%"] }}
+                      transition={{ duration: 5.5, repeat: Infinity, ease: "easeInOut" }}
+                    />
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-[11px] text-zinc-500">
+                    <span>Allowance used</span>
+                    <span>~48%</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pointer-events-none absolute inset-0 -z-10 rounded-[28px] bg-white/10 blur-2xl opacity-30" />
+            </motion.div>
           </div>
         </div>
       </section>
 
-      {/* Features */}
-      <section className="mx-auto max-w-6xl px-4 pb-16">
+      {/* FEATURES */}
+      <section id="features" className="mx-auto max-w-6xl px-4 pb-16">
         <div className="ui-card p-6 sm:p-8">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <div className="text-sm font-semibold text-white">Built for real-world risk</div>
-              <div className="mt-1 text-sm text-zinc-400">
-                Control spend, limit burstiness, and lock down models — without slowing shipping.
-              </div>
-            </div>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <SectionTitle
+              kicker="PRODUCT"
+              title="Built for real-world risk"
+              sub="Control spend, limit burstiness, and lock down models — without slowing shipping."
+            />
             <Pill icon={<Zap className="h-4 w-4" />}>Fast setup • Clean defaults</Pill>
           </div>
 
@@ -222,77 +257,97 @@ export default function MarketingHome() {
         </div>
       </section>
 
-      {/* Pricing */}
-      <section id="pricing" className="mx-auto max-w-6xl px-4 pb-20">
-        <div className="grid gap-4 lg:grid-cols-3">
-          {[
-            {
-              name: "Starter",
-              price: "$0",
-              note: "For solo builders",
-              items: ["1 workspace", "Basic policies", "Dashboard access"],
-              cta: "Get started",
-            },
-            {
-              name: "Team",
-              price: "$49",
-              note: "For fast-moving teams",
-              items: ["Unlimited agents", "Webhooks", "Policy templates", "Key rotation"],
-              cta: "Start team plan",
-              featured: true,
-            },
-            {
-              name: "Enterprise",
-              price: "Custom",
-              note: "For regulated orgs",
-              items: ["SLA", "Audit exports", "SSO", "Dedicated support"],
-              cta: "Talk to us",
-            },
-          ].map((p) => (
-            <div key={p.name} className={cn("ui-card ui-card-hover p-6", p.featured && "border-white/25 bg-white/[0.06]")}>
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="text-sm font-semibold text-white">{p.name}</div>
-                  <div className="mt-1 text-sm text-zinc-400">{p.note}</div>
-                </div>
-                {p.featured ? <span className="ui-pill">popular</span> : null}
-              </div>
+      {/* SECURITY */}
+      <section id="security" className="mx-auto max-w-6xl px-4 pb-16">
+        <div className="ui-card p-6 sm:p-8">
+          <SectionTitle
+            kicker="SAFETY"
+            title="Guardrails you can explain"
+            sub="Forsig is designed so you can justify controls to teammates, auditors, and customers."
+          />
 
-              <div className="mt-5 flex items-end gap-2">
-                <div className="text-3xl font-semibold tracking-tight text-white">{p.price}</div>
-                {p.price.startsWith("$") ? <div className="text-sm text-zinc-500">/ month</div> : null}
-              </div>
-
-              <div className="mt-5 space-y-2">
-                {p.items.map((it) => (
-                  <div key={it} className="flex items-start gap-2 text-sm text-zinc-300">
-                    <Check className="mt-0.5 h-4 w-4 text-white/90" />
-                    <span>{it}</span>
+          <div className="mt-6 grid gap-3 md:grid-cols-3">
+            {[
+              ["Least privilege keys", "Issue per-agent keys; revoke instantly."],
+              ["Defaults that are safe", "Balance + velocity caps are always present."],
+              ["Actionable events", "Webhooks let you monitor & respond."],
+            ].map(([t, d]) => (
+              <div key={t} className="ui-card ui-card-hover p-5">
+                <div className="flex items-start gap-2">
+                  <CheckCircle2 className="mt-0.5 h-5 w-5 text-white/90" />
+                  <div>
+                    <div className="text-sm font-semibold text-white">{t}</div>
+                    <div className="mt-1 text-sm text-zinc-400">{d}</div>
                   </div>
-                ))}
+                </div>
               </div>
+            ))}
+          </div>
 
-              <Link href="/app" className={cn("mt-6 w-full ui-btn", p.featured && "ui-btn-primary")}>
-                {p.cta} <ArrowRight className="h-4 w-4" />
-              </Link>
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="text-sm text-zinc-400">
+              Want a quick demo? Use the dashboard to mint a key and test enforcement in minutes.
             </div>
-          ))}
+            <Link href="/app" className="ui-btn ui-btn-primary">
+              Open Dashboard <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
         </div>
       </section>
 
-      {/* Footer */}
+      {/* FAQ */}
+      <section id="faq" className="mx-auto max-w-6xl px-4 pb-20">
+        <div className="ui-card p-6 sm:p-8">
+          <SectionTitle
+            kicker="FAQ"
+            title="Quick answers"
+            sub="Short, clear explanations you can reuse in a YC application or pitch."
+          />
+
+          <div className="mt-6 grid gap-3 md:grid-cols-2">
+            {[
+              {
+                q: "What is Forsig?",
+                a: "A control plane for agent spend. You set allowance policies (budget, velocity, breakers) and issue keys.",
+              },
+              {
+                q: "Is it only for OpenAI?",
+                a: "No — the product is designed around policy enforcement. Provider support can expand as you add adapters.",
+              },
+              {
+                q: "How fast can I integrate?",
+                a: "Minutes: create an agent, mint a key, and enforce spend rules on calls immediately.",
+              },
+              {
+                q: "What makes it premium?",
+                a: "Simple primitives with safe defaults, great UX, and controls that teams actually trust.",
+              },
+            ].map((x) => (
+              <div key={x.q} className="ui-card ui-card-hover p-5">
+                <div className="text-sm font-semibold text-white">{x.q}</div>
+                <div className="mt-2 text-sm text-zinc-400">{x.a}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* FOOTER */}
       <footer className="border-t border-white/10">
         <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-10 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm text-zinc-400">
             <span className="font-semibold text-zinc-100">Forsig</span> — Control agent spend with elegance.
           </div>
           <div className="flex items-center gap-3 text-sm">
+            <a className="text-zinc-400 hover:text-white" href="#features">
+              Features
+            </a>
+            <a className="text-zinc-400 hover:text-white" href="#security">
+              Security
+            </a>
             <Link className="text-zinc-400 hover:text-white" href="/app">
               Dashboard
             </Link>
-            <a className="text-zinc-400 hover:text-white" href="#pricing">
-              Pricing
-            </a>
           </div>
         </div>
       </footer>
