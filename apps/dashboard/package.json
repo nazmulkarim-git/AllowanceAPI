@@ -14,7 +14,7 @@
     "clsx": "^2.1.1",
     "framer-motion": "^12.33.0",
     "lucide-react": "^0.563.0",
-    "next": "^14.2.5",
+    "next": "14.2.35",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwindcss": "^3.4.10"
@@ -26,5 +26,9 @@
     "autoprefixer": "^10.4.19",
     "postcss": "^8.4.41",
     "typescript": "^5.5.4"
+  },
+  "optionalDependencies": {
+    "@next/swc-linux-x64-gnu": "14.2.35",
+    "@next/swc-linux-x64-musl": "14.2.35"
   }
 }
