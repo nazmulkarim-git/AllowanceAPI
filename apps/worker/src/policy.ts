@@ -13,6 +13,53 @@ export interface Policy {
   circuitBreakerN: number;
 }
 
+/**
+ * Runtime validation + normalization.
+ * Prevents Redis keys like allow:velocity:undefined and TTL "undefined".
+ */
+function normalizePolicy(policy: Policy) {
+  const agentId = (policy?.agentId ?? "").trim();
+  if (!agentId) {
+    throw new Error("Policy misconfigured: agentId is missing");
+  }
+
+  const balanceCents = Math.trunc(Number(policy.balanceCents));
+  if (!Number.isFinite(balanceCents) || balanceCents < 0) {
+    throw new Error("Policy misconfigured: balanceCents invalid");
+  }
+
+  // Default window to 60s if missing; clamp to >= 1
+  const velocityWindowSeconds = Math.max(
+    1,
+    Math.trunc(Number((policy as any).velocityWindowSeconds ?? 60))
+  );
+  if (!Number.isFinite(velocityWindowSeconds)) {
+    throw new Error("Policy misconfigured: velocityWindowSeconds invalid");
+  }
+
+  const velocityCents = Math.trunc(Number(policy.velocityCents));
+  if (!Number.isFinite(velocityCents) || velocityCents < 0) {
+    throw new Error("Policy misconfigured: velocityCents invalid");
+  }
+
+  const circuitBreakerN = Math.trunc(Number(policy.circuitBreakerN));
+  const cb = Number.isFinite(circuitBreakerN) ? circuitBreakerN : 0;
+
+  return {
+    ...policy,
+    agentId,
+    balanceCents,
+    velocityWindowSeconds,
+    velocityCents,
+    circuitBreakerN: cb,
+  };
+}
+
+function toInt(n: unknown, fallback = 0) {
+  const x = Math.trunc(Number(n));
+  return Number.isFinite(x) ? x : fallback;
+}
+
 export async function enforcePreflight(
   redis: UpstashRedis,
   pepper: string,
@@ -27,11 +74,10 @@ export async function enforcePreflight(
   code?: string;
   message?: string;
 }> {
+  const p = normalizePolicy(policy);
+
   // 1️⃣ Hard stop if agent already frozen
-  const frozen = await redis.cmd<string>(
-    "GET",
-    `${KEY_PREFIX}frozen:${policy.agentId}`
-  );
+  const frozen = await redis.cmd<string>("GET", `${KEY_PREFIX}frozen:${p.agentId}`);
   if (frozen) {
     return {
       ok: false,
@@ -44,9 +90,11 @@ export async function enforcePreflight(
   // 2️⃣ Estimate cost (simple heuristic)
   const prompt = JSON.stringify(body?.messages ?? []);
   const tokens = Math.max(1, Math.ceil(prompt.length / 4));
-  const reserveCents = Math.ceil(tokens * 0.02);
 
-  if (policy.balanceCents < reserveCents) {
+  // Reserve must be an integer number of cents
+  const reserveCents = Math.max(1, Math.trunc(Math.ceil(tokens * 0.02)));
+
+  if (p.balanceCents < reserveCents) {
     return {
       ok: false,
       status: 402,
@@ -74,20 +122,21 @@ export async function checkCircuitBreakerPostflight(
   policy: Policy,
   promptHash: string
 ): Promise<boolean> {
-  if (!policy.circuitBreakerN || policy.circuitBreakerN <= 0) return false;
+  const p = normalizePolicy(policy);
 
-  const key = `${KEY_PREFIX}prompt_streak:${policy.agentId}:${promptHash}`;
+  if (!p.circuitBreakerN || p.circuitBreakerN <= 0) return false;
+
+  const key = `${KEY_PREFIX}prompt_streak:${p.agentId}:${promptHash}`;
+
+  // INCR returns integer
   const streak = await redis.cmd<number>("INCR", key);
 
-  // decay loop memory
-  await redis.cmd(
-    "EXPIRE",
-    key,
-    String(Math.max(60, policy.velocityWindowSeconds))
-  );
+  // decay loop memory (integer seconds)
+  const ttl = Math.max(60, p.velocityWindowSeconds);
+  await redis.cmd("EXPIRE", key, String(ttl));
 
-  if (streak >= policy.circuitBreakerN) {
-    await redis.cmd("SET", `${KEY_PREFIX}frozen:${policy.agentId}`, "1");
+  if (streak >= p.circuitBreakerN) {
+    await redis.cmd("SET", `${KEY_PREFIX}frozen:${p.agentId}`, "1");
     return true;
   }
 
@@ -100,30 +149,47 @@ export async function settlePostflight(
   reservedCents: number,
   actualCents: number
 ): Promise<{ finalBalanceCents: number }> {
-  const delta = actualCents - reservedCents;
+  const p = normalizePolicy(policy);
 
-  const balanceKey = `${KEY_PREFIX}balance:${policy.agentId}`;
+  // We keep your original behavior: charge actualCents.
+  // If you later implement true reservation hold/settlement, you can use delta.
+  // const delta = actualCents - reservedCents;
+
+  const balanceKey = `${KEY_PREFIX}balance:${p.agentId}`;
+
+  // Read balance safely
   const raw = await redis.cmd<string | null>("GET", balanceKey);
-  let balance = raw === null ? policy.balanceCents : Number(raw);
+  let balance = raw === null ? p.balanceCents : toInt(raw, p.balanceCents);
 
-  if (!Number.isFinite(balance) || !Number.isInteger(balance)) {
-    // Reset if corrupted
-    balance = policy.balanceCents;
+  // Repair corrupted stored value
+  if (!Number.isFinite(balance) || !Number.isInteger(balance) || balance < 0) {
+    balance = p.balanceCents;
   }
 
-  balance = balance - actualCents;
+  // Charge actual (integer cents)
+  const charge = Math.max(0, toInt(actualCents, 0));
+  balance = balance - charge;
+
+  // Never store non-integers
   await redis.cmd("SET", balanceKey, String(balance));
 
-  const velocityKey = `${KEY_PREFIX}velocity:${policy.agentId}`;
-  const incr = Math.trunc(Number(actualCents));
-  if (!Number.isFinite(incr)) throw new Error("Invalid incr value");
-  await redis.cmd("INCRBY", velocityKey, String(incr));
-  //await redis.cmd("INCRBY", velocityKey, actualCents);
-  await redis.cmd(
-    "EXPIRE",
-    velocityKey,
-    String(policy.velocityWindowSeconds)
-  );
+  // Velocity tracking
+  const velocityKey = `${KEY_PREFIX}velocity:${p.agentId}`;
+
+  // Ensure velocity is integer before INCRBY (self-heal corrupted key)
+  const vraw = await redis.cmd<string | null>("GET", velocityKey);
+  if (vraw !== null) {
+    const v = Number(vraw);
+    if (!Number.isFinite(v) || !Number.isInteger(v)) {
+      await redis.cmd("SET", velocityKey, "0");
+    }
+  }
+
+  await redis.cmd("INCRBY", velocityKey, String(charge));
+
+  // EXPIRE needs integer seconds
+  const windowSeconds = Math.max(1, p.velocityWindowSeconds);
+  await redis.cmd("EXPIRE", velocityKey, String(windowSeconds));
 
   return { finalBalanceCents: balance };
 }
