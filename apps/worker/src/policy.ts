@@ -60,6 +60,17 @@ function toInt(n: unknown, fallback = 0) {
   return Number.isFinite(x) ? x : fallback;
 }
 
+async function getInt(redis: UpstashRedis, key: string): Promise<number | null> {
+  const raw = await redis.cmd<string | null>("GET", key);
+  if (raw === null) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && Number.isInteger(n) ? n : null;
+}
+
+async function setInt(redis: UpstashRedis, key: string, value: number) {
+  await redis.cmd("SET", key, String(Math.trunc(value)));
+}
+
 export async function enforcePreflight(
   redis: UpstashRedis,
   pepper: string,
@@ -94,12 +105,36 @@ export async function enforcePreflight(
   // Reserve must be an integer number of cents
   const reserveCents = Math.max(1, Math.trunc(Math.ceil(tokens * 0.02)));
 
-  if (p.balanceCents < reserveCents) {
+  const balanceKey = `${KEY_PREFIX}balance:${policy.agentId}`;
+  const velocityKey = `${KEY_PREFIX}velocity:${policy.agentId}`;
+
+  // Load balance from Redis; if missing, initialize from policy.balanceCents (DB default)
+  let balance = await getInt(redis, balanceKey);
+  if (balance === null) {
+    balance = Math.trunc(policy.balanceCents);
+    await setInt(redis, balanceKey, balance);
+  }
+
+  // Load velocity; if missing treat as 0
+  let velocity = await getInt(redis, velocityKey);
+  if (velocity === null) velocity = 0;
+
+  if (balance < reserveCents) {
     return {
       ok: false,
       status: 402,
       code: "insufficient_balance",
       message: "Agent balance exceeded.",
+    };
+  }
+
+  // Enforce velocity cap if configured (>0)
+  if (policy.velocityCents > 0 && (velocity + reserveCents) > policy.velocityCents) {
+    return {
+      ok: false,
+      status: 429,
+      code: "velocity_exceeded",
+      message: "Velocity limit exceeded. Please wait for the window to reset.",
     };
   }
 
@@ -185,11 +220,11 @@ export async function settlePostflight(
     }
   }
 
+  const before = await redis.cmd<string | null>("GET", velocityKey);
   await redis.cmd("INCRBY", velocityKey, String(charge));
-
-  // EXPIRE needs integer seconds
-  const windowSeconds = Math.max(1, p.velocityWindowSeconds);
-  await redis.cmd("EXPIRE", velocityKey, String(windowSeconds));
+  if (before === null) {
+    await redis.cmd("EXPIRE", velocityKey, String(windowSeconds));
+  }
 
   return { finalBalanceCents: balance };
 }

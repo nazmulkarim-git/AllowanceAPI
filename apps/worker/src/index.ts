@@ -75,6 +75,18 @@ export default {
 
       // 2) Load agent policy (view: agents_with_policy)
       const agent = await supa.getAgentWithPolicy(keyRec.agent_id);
+      const requestedModel = body?.model;
+      const allowed = agent.allowed_models;
+
+      // Handle both array + string formats
+      const allowedList: string[] =
+        Array.isArray(allowed) ? allowed :
+        typeof allowed === "string" ? allowed.split(",").map(s => s.trim()).filter(Boolean) :
+        [];
+
+      if (allowedList.length > 0 && requestedModel && !allowedList.includes(requestedModel)) {
+        return jsonError(403, "model_not_allowed", `Model not allowed: ${requestedModel}`);
+      }
       if (!agent) {
         return jsonError(404, "agent_not_found", "Agent not found", env, requestId);
       }
@@ -128,6 +140,19 @@ export default {
 
       const openaiKey = await decryptAesGcmB64(encryptedKey, env.SERVER_ENCRYPTION_KEY_B64);
 
+      
+      const idem = req.headers.get("Idempotency-Key") || req.headers.get("idempotency-key");
+      if (idem) {
+        const idemKey = `allow:idem:${agentId}:${idem}`;
+
+        // If already processed, return cached response body (best practice),
+        // or at least avoid charging again.
+        const existing = await redis.cmd<string | null>("GET", idemKey);
+        if (existing) {
+          return new Response(existing, { headers: { "content-type": "application/json" } });
+        }
+      }
+      
       // 6) OPTIONAL: Free mock mode (no OpenAI spend)
       if (String(env.MOCK_OPENAI ?? "") === "1") {
         const mock = {
@@ -162,6 +187,13 @@ export default {
         error: { message: "Upstream returned non-JSON" },
       }));
 
+      if (idem) {
+        const idemKey = `allow:idem:${agentId}:${idem}`;
+        // cache for 24h
+        await redis.cmd("SET", idemKey, JSON.stringify(upstreamJson));
+        await redis.cmd("EXPIRE", idemKey, "86400");
+      }
+
       if (!upstream.ok) {
         return new Response(JSON.stringify(upstreamJson), {
           status: upstream.status,
@@ -175,6 +207,30 @@ export default {
 
       // 9) Postflight + breaker
       await settlePostflight(redis, policy, pre.reserveCents!, actualCostCents);
+      // Record spend event + persist balance in Supabase (system of record)
+      try {
+        await supa.insertSpendEvent({
+          agent_id: agent.id,
+          user_id: agent.user_id,
+          provider: "openai",
+          model: body?.model ?? "unknown",
+          cost_cents: actualCostCents,
+          request_id: requestId,
+        });
+
+        // Optional: persist remaining balance if agents.balance_cents means “remaining”
+        // We can recompute from Redis (source of enforcement).
+        const newBalanceRaw = await redis.cmd<string | null>("GET", `allow:balance:${agent.id}`);
+        if (newBalanceRaw) {
+          const newBalance = Number(newBalanceRaw);
+          if (Number.isFinite(newBalance)) {
+            await supa.updateAgentPolicyBalance(agent.id, Math.trunc(newBalance));
+          }
+        }
+      } catch (e) {
+        // Don’t fail the request if audit write fails, but log it.
+        console.log("SPEND_PERSIST_FAIL", String((e as any)?.message ?? e));
+      }
 
       const tripped = await checkCircuitBreakerPostflight(redis, policy, pre.promptHash!);
       if (tripped) {
