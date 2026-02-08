@@ -36,7 +36,7 @@ export class SupabaseAdmin {
   async getAgentWithPolicy(agentId: string): Promise<{
     id: string; user_id: string; status: string;
     balance_cents: number;
-    allowed_models: string[];
+    allowed_models: string[] | string | null;
     circuit_breaker_n: number;
     velocity_window_seconds: number;
     velocity_cap_cents: number;

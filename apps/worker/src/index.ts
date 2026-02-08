@@ -96,8 +96,9 @@ export default {
       const allowed = agent.allowed_models;
       const allowedList: string[] =
         Array.isArray(allowed) ? allowed :
-        typeof allowed === "string" ? allowed.split(",").map((s) => s.trim()).filter(Boolean) :
-        [];
+        typeof allowed === "string"
+          ? allowed.split(",").map((s: string) => s.trim()).filter(Boolean)
+          : [];
 
       if (allowedList.length > 0 && requestedModel && !allowedList.includes(requestedModel)) {
         return err(403, "model_not_allowed", `Model not allowed: ${requestedModel}`, requestId);
@@ -233,6 +234,8 @@ export default {
       try {
         await supa.insertSpendEvent({
           agent_id: agent.id,
+          user_id: agent.user_id,
+          provider: "openai",
           model: requestedModel,
           prompt_tokens: Math.max(0, Math.trunc(promptTokens)),
           completion_tokens: Math.max(0, Math.trunc(completionTokens)),
