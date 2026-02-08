@@ -36,7 +36,7 @@ export async function POST(req: Request) {
     const keyHashes = (keys.data ?? []).map((k: any) => k.key_hash).filter(Boolean);
 
     // force enforcement state
-    await redis.cmd("SETEX", `allow:bal:${agentId}`, "86400", "0");
+    await redis.cmd("SETEX", `allow:balance:${agentId}`, "86400", "0");
     await redis.cmd("SETEX", `allow:frozen:${agentId}`, "86400", "1");
 
     await invalidateAgentCaches(redis, keyHashes);

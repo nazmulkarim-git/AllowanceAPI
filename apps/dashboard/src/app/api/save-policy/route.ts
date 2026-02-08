@@ -38,7 +38,7 @@ export async function POST(req: Request) {
     const redis = upstashServer();
 
     // update balance cache instantly
-    await redis.cmd("SETEX", `allow:bal:${agentId}`, "86400", String(policy.balance_cents ?? 0));
+    await redis.cmd("SETEX", `allow:balance:${agentId}`, "86400", String(policy.balance_cents ?? 0));
 
     // invalidate policy cache for all active keys
     const keys = await supa

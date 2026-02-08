@@ -57,7 +57,7 @@ export async function POST(req: Request) {
       await svc.from("agents").update({ status: "frozen" }).eq("id", agentId);
       await svc.from("agent_policies").update({ balance_cents: 0 }).eq("agent_id", agentId);
 
-      await redis.cmd("SETEX", `allow:bal:${agentId}`, "86400", "0");
+      await redis.cmd("SETEX", `allow:balance:${agentId}`, "86400", "0");
       await redis.cmd("SETEX", `allow:frozen:${agentId}`, "86400", "1");
       await invalidateAgentCaches(redis, keyHashes);
 
@@ -68,7 +68,7 @@ export async function POST(req: Request) {
       const bal = Number((body as any).balance_cents);
       await svc.from("agent_policies").update({ balance_cents: bal }).eq("agent_id", agentId);
 
-      await redis.cmd("SETEX", `allow:bal:${agentId}`, "86400", String(bal));
+      await redis.cmd("SETEX", `allow:balance:${agentId}`, "86400", String(bal));
       await invalidateAgentCaches(redis, keyHashes);
 
       return NextResponse.json({ ok: true });
@@ -91,7 +91,7 @@ export async function POST(req: Request) {
       if (error) return NextResponse.json({ error: { message: error.message } }, { status: 400 });
 
       if (p.balance_cents !== undefined) {
-        await redis.cmd("SETEX", `allow:bal:${agentId}`, "86400", String(p.balance_cents));
+        await redis.cmd("SETEX", `allow:balance:${agentId}`, "86400", String(p.balance_cents));
       }
       await invalidateAgentCaches(redis, keyHashes);
 
