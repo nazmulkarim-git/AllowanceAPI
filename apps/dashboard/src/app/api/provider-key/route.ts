@@ -15,7 +15,15 @@ export async function POST(req: Request) {
     const { data: userData, error: userErr } = await supa.auth.getUser(authHeader.replace("Bearer ", ""));
     if (userErr || !userData?.user) return NextResponse.json({ error: { message: "Invalid auth" } }, { status: 401 });
 
-    const encrypted_key = encryptAesGcmToB64(apiKey, process.env.SERVER_ENCRYPTION_KEY_B64!);
+    const serverKey = process.env.SERVER_ENCRYPTION_KEY_B64;
+    if (!serverKey) {
+      return NextResponse.json(
+        { error: { message: "Server misconfigured: missing SERVER_ENCRYPTION_KEY_B64" } },
+        { status: 500 }
+      );
+    }
+
+    const encrypted_key = encryptAesGcmToB64(apiKey, serverKey);
 
     const { error } = await supa.from("provider_keys").upsert({
       user_id: userData.user.id,

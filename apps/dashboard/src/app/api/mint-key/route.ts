@@ -25,7 +25,13 @@ export async function POST(req: Request) {
 
     // Generate allowance key (show only once)
     const key = `sk_allow_${crypto.randomBytes(24).toString("base64url")}`;
-    const pepper = process.env.ALLOWANCE_KEY_PEPPER!;
+    const pepper = process.env.ALLOWANCE_KEY_PEPPER;
+    if (!pepper) {
+      return NextResponse.json(
+        { error: { message: "Server misconfigured: missing ALLOWANCE_KEY_PEPPER" } },
+        { status: 500 }
+      );
+    }
     const key_hash = sha256Hex(`${pepper}:${key}`);
     const prefix = key.slice(0, 8);
 

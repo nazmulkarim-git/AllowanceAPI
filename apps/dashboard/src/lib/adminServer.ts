@@ -1,8 +1,11 @@
 import { createClient } from "@supabase/supabase-js";
 
 export function supabaseService() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) {
+    throw new Error("Server misconfigured: missing NEXT_PUBLIC_SUPABASE_URL/SUPABASE_SERVICE_ROLE_KEY");
+  }
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
@@ -11,8 +14,11 @@ export async function requireAdminFromRequest(req: Request) {
   if (!token) throw new Error("missing_token");
 
   // verify caller identity using anon client (safe)
-  const anonUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  const anonUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!anonUrl || !anonKey) {
+    throw new Error("Server misconfigured: missing NEXT_PUBLIC_SUPABASE_URL/NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  }
   const anon = createClient(anonUrl, anonKey, { auth: { persistSession: false } });
 
   const { data: u, error } = await anon.auth.getUser(token);

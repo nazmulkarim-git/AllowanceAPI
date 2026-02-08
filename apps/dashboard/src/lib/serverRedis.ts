@@ -41,8 +41,11 @@ export class UpstashRedisServer {
 }
 
 export function upstashServer() {
-  const url = process.env.UPSTASH_REDIS_REST_URL!;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN!;
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) {
+    throw new Error("Server misconfigured: missing UPSTASH_REDIS_REST_URL/UPSTASH_REDIS_REST_TOKEN");
+  }
   return new UpstashRedisServer(url, token);
 }
 

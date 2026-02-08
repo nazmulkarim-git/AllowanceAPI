@@ -70,7 +70,7 @@ async function atomicReserve(
   reserve: number,
   velocityCap: number,
   windowSeconds: number
-): Promise<{ ok: true } | { ok: false; code: "insufficient_balance" | "velocity_exceeded" }> {
+): Promise<{ ok: true } | { ok: false; code: "insufficient_balance" | "velocity_cap_exceeded" }> {
   const lua = `
 local balKey = KEYS[1]
 local velKey = KEYS[2]
@@ -95,7 +95,7 @@ local vel = redis.call("GET", velKey)
 if not vel then vel = 0 else vel = tonumber(vel) or 0 end
 
 if velCap > 0 and (vel + reserve) > velCap then
-  return {"ERR","velocity_exceeded"}
+  return {"ERR","velocity_cap_exceeded"}
 end
 
 redis.call("DECRBY", balKey, reserve)
@@ -197,7 +197,7 @@ export async function enforcePreflight(
     return {
       ok: false,
       status: 429,
-      code: "velocity_exceeded",
+      code: "velocity_cap_exceeded",
       message: "Velocity limit exceeded. Please wait for the window to reset.",
     };
   }

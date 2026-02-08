@@ -22,6 +22,7 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
   const [profile, setProfile] = useState<{ email: string; is_admin: boolean } | null>(null);
   const [agent, setAgent] = useState<{ id: string; name: string; status: string } | null>(null);
   const [policy, setPolicy] = useState<Policy | null>(null);
+  const [live, setLive] = useState<{ balance_cents: number; velocity_cents: number; frozen: boolean } | null>(null);
   const [allowanceKey, setAllowanceKey] = useState<string | null>(null);
   const [modelsText, setModelsText] = useState("gpt-4o-mini");
   const userId = session?.user?.id;
@@ -54,6 +55,34 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
     if (!loading) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, userId]);
+
+  // Live policy state from gateway cache (Upstash) for demo-quality "real-time" balance
+  useEffect(() => {
+    if (loading || !userId) return;
+    let cancelled = false;
+    let t: any = null;
+
+    const tick = async () => {
+      try {
+        const res = await authedFetch(`/api/live-balance?agentId=${encodeURIComponent(params.id)}`);
+        const json = await res.json().catch(() => null);
+        if (!cancelled && res.ok && json) {
+          setLive({
+            balance_cents: Number(json.balance_cents ?? 0),
+            velocity_cents: Number(json.velocity_cents ?? 0),
+            frozen: !!json.frozen,
+          });
+        }
+      } catch {}
+      if (!cancelled) t = setTimeout(tick, 500);
+    };
+
+    tick();
+    return () => {
+      cancelled = true;
+      if (t) clearTimeout(t);
+    };
+  }, [loading, userId, params.id]);
 
   async function mintKey() {
     const res = await authedFetch("/api/mint-key", {
@@ -171,6 +200,14 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
               <h2 className="text-sm font-semibold text-white">Allowance policy</h2>
               <span className="ui-pill">live</span>
             </div>
+
+            {live ? (
+              <div className="mt-2 text-xs text-zinc-400">
+                Gateway cache: <span className="text-white">${(live.balance_cents / 100).toFixed(2)}</span> • Velocity:{" "}
+                <span className="text-white">${(live.velocity_cents / 100).toFixed(2)}</span>
+                {live.frozen ? <span className="ml-2 ui-pill">frozen</span> : null}
+              </div>
+            ) : null}
 
             {!policy ? (
               <div className="mt-4 text-sm text-zinc-400">No policy found.</div>

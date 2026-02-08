@@ -12,6 +12,7 @@ import { jsonError } from "./errors";
 import { SupabaseAdmin } from "./supabase";
 import { sha256Hex, decryptAesGcmB64 } from "./crypto";
 import { estimateCostCents } from "./pricing";
+import { sendWebhook, TripEvent } from "./webhook";
 
 function getBearer(req: Request): string | null {
   const auth = req.headers.get("authorization") || req.headers.get("Authorization") || "";
@@ -23,6 +24,46 @@ function err(status: number, code: string, message: string, requestId: string) {
   return jsonError(status, code, message, undefined, requestId);
 }
 
+function toTripEvent(code: string): TripEvent | null {
+  switch (code) {
+    case "velocity_cap_exceeded":
+      return "velocity_cap_exceeded";
+    case "insufficient_balance":
+      return "insufficient_balance";
+    case "model_not_allowed":
+      return "model_not_allowed";
+    case "key_frozen":
+      return "key_frozen";
+    case "circuit_breaker_tripped":
+      return "circuit_breaker_tripped";
+    default:
+      return null;
+  }
+}
+
+function fireWebhookBestEffort(
+  ctx: ExecutionContext,
+  agent: { id: string; webhook_url?: string | null; webhook_secret?: string | null },
+  code: string,
+  opts: { model?: string; reason?: string; requestId: string }
+) {
+  const event = toTripEvent(code);
+  const webhookUrl = agent?.webhook_url;
+  if (!event || !webhookUrl) return;
+
+  ctx.waitUntil(
+    sendWebhook({
+      webhookUrl,
+      webhookSecret: agent.webhook_secret,
+      event,
+      agentId: agent.id,
+      model: opts.model,
+      reason: opts.reason ?? code,
+      requestId: opts.requestId,
+      timestamp: new Date().toISOString(),
+    })
+  );
+}
 
 export default {
   async fetch(req: Request, env: any, ctx: ExecutionContext): Promise<Response> {
@@ -89,18 +130,28 @@ export default {
         return err(404, "agent_not_found", "Agent not found", requestId);
       }
       if (agent.status && agent.status !== "active") {
+        // optional webhook: agent disabled is not a "trip" event
         return err(403, "agent_disabled", "Agent is not active", requestId);
       }
 
       // Allowed model gating (after agent is confirmed)
       const allowed = agent.allowed_models;
       const allowedList: string[] =
-        Array.isArray(allowed) ? allowed :
-        typeof allowed === "string"
-          ? allowed.split(",").map((s: string) => s.trim()).filter(Boolean)
-          : [];
+        Array.isArray(allowed)
+          ? allowed
+          : typeof allowed === "string"
+            ? allowed
+                .split(",")
+                .map((s: string) => s.trim())
+                .filter(Boolean)
+            : [];
 
       if (allowedList.length > 0 && requestedModel && !allowedList.includes(requestedModel)) {
+        fireWebhookBestEffort(ctx, agent, "model_not_allowed", {
+          model: requestedModel,
+          reason: `Model not allowed: ${requestedModel}`,
+          requestId,
+        });
         return err(403, "model_not_allowed", `Model not allowed: ${requestedModel}`, requestId);
       }
 
@@ -124,6 +175,11 @@ export default {
         circuitBreakerN: Number(agent.circuit_breaker_n ?? 0),
       };
 
+      // Track reservation so we can ALWAYS refund on unexpected errors
+      let reserved = false;
+      let reserveCents = 0;
+      let settled = false;
+
       // 4) Preflight (ATOMIC reserve + velocity check)
       const pre = await enforcePreflight(
         redis,
@@ -134,145 +190,181 @@ export default {
         { PRICING_JSON: env.PRICING_JSON }
       );
       if (!pre.ok) {
+        // fire webhook for trip errors
+        fireWebhookBestEffort(ctx, agent, pre.code!, {
+          model: requestedModel,
+          reason: pre.message,
+          requestId,
+        });
         return err(pre.status!, pre.code!, pre.message!, requestId);
       }
 
-      // 5) Load encrypted provider key (provider=openai) for this user_id
-      const q = new URLSearchParams({
-        select: "encrypted_key",
-        user_id: `eq.${agent.user_id}`,
-        provider: "eq.openai",
-        limit: "1",
-      });
+      reserved = true;
+      reserveCents = Number(pre.reserveCents || 0);
 
-      const rows = await (async () => {
-        const res = await fetch(`${env.SUPABASE_URL}/rest/v1/provider_keys?${q.toString()}`, {
-          method: "GET",
-          headers: {
-            apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-            Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
+      try {
+        // 5) Load encrypted provider key (provider=openai) for this user_id
+        const q = new URLSearchParams({
+          select: "encrypted_key",
+          user_id: `eq.${agent.user_id}`,
+          provider: "eq.openai",
+          limit: "1",
         });
 
-        const json = await res.json().catch(() => []);
-        if (!res.ok) throw new Error(`Supabase error ${res.status}: ${JSON.stringify(json)}`);
-        return json as any[];
-      })();
+        const rows = await (async () => {
+          const res = await fetch(`${env.SUPABASE_URL}/rest/v1/provider_keys?${q.toString()}`, {
+            method: "GET",
+            headers: {
+              apikey: env.SUPABASE_SERVICE_ROLE_KEY,
+              Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+          });
 
-      const encryptedKey = rows?.[0]?.encrypted_key;
-      if (!encryptedKey) {
-        // Refund the reservation since we cannot proceed
-        await settlePostflight(redis, policy, pre.reserveCents!, 0);
-        return err(401, "missing_provider_key", "No OpenAI key saved in Supabase for this user", requestId);
-      }
+          const json = await res.json().catch(() => []);
+          if (!res.ok) throw new Error(`Supabase error ${res.status}: ${JSON.stringify(json)}`);
+          return json as any[];
+        })();
 
-      const openaiKey = await decryptAesGcmB64(encryptedKey, env.SERVER_ENCRYPTION_KEY_B64);
+        const encryptedKey = rows?.[0]?.encrypted_key;
+        if (!encryptedKey) {
+          // Refund reservation since we cannot proceed
+          await settlePostflight(redis, policy, reserveCents, 0);
+          settled = true;
+          return err(401, "missing_provider_key", "No OpenAI key saved in Supabase for this user", requestId);
+        }
 
-      // 6) Mock mode (no OpenAI call, but still tests enforcement)
-      if (String(env.MOCK_OPENAI ?? "") === "1") {
-        const promptTokens = 1;
-        const completionTokens = 1;
+        const openaiKey = await decryptAesGcmB64(encryptedKey, env.SERVER_ENCRYPTION_KEY_B64);
+
+        // 6) Mock mode (no OpenAI call, but still tests enforcement)
+        if (String(env.MOCK_OPENAI ?? "") === "1") {
+          const promptTokens = 1;
+          const completionTokens = 1;
+          const actualCostCents = estimateCostCents(requestedModel, promptTokens, completionTokens, env);
+
+          await settlePostflight(redis, policy, reserveCents, actualCostCents);
+          settled = true;
+
+          const tripped = await checkCircuitBreakerPostflight(redis, policy, pre.promptHash!);
+          if (tripped) {
+            fireWebhookBestEffort(ctx, agent, "circuit_breaker_tripped", {
+              model: requestedModel,
+              reason: "Circuit breaker tripped: repeated prompt loop detected.",
+              requestId,
+            });
+            return err(429, "circuit_breaker_tripped", "Circuit breaker tripped: repeated prompt loop detected.", requestId);
+          }
+
+          const mock = {
+            id: "mock-chatcmpl",
+            object: "chat.completion",
+            created: Math.floor(Date.now() / 1000),
+            model: requestedModel,
+            choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }],
+            usage: {
+              prompt_tokens: promptTokens,
+              completion_tokens: completionTokens,
+              total_tokens: promptTokens + completionTokens,
+            },
+          };
+
+          if (idemKey) {
+            await redis.cmd("SET", idemKey, JSON.stringify(mock));
+            await redis.cmd("EXPIRE", idemKey, "86400");
+          }
+
+          return new Response(JSON.stringify(mock), { headers: { "content-type": "application/json" } });
+        }
+
+        // 7) Forward to OpenAI (REAL)
+        const upstream = await fetch(env.OPENAI_API_BASE + "/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${openaiKey}`,
+          },
+          body: JSON.stringify(body),
+        });
+
+        const upstreamJson = await upstream.json().catch(() => ({
+          error: { message: "Upstream returned non-JSON" },
+        }));
+
+        if (!upstream.ok) {
+          // Refund reservation on upstream failure
+          await settlePostflight(redis, policy, reserveCents, 0);
+          settled = true;
+
+          return new Response(JSON.stringify(upstreamJson), {
+            status: upstream.status,
+            headers: { "content-type": "application/json" },
+          });
+        }
+
+        // 8) Compute actual cost from usage
+        const usage = (upstreamJson as any)?.usage ?? {};
+        const promptTokens = Number(usage.prompt_tokens ?? 0);
+        const completionTokens = Number(usage.completion_tokens ?? 0);
         const actualCostCents = estimateCostCents(requestedModel, promptTokens, completionTokens, env);
 
-        await settlePostflight(redis, policy, pre.reserveCents!, actualCostCents);
-        await checkCircuitBreakerPostflight(redis, policy, pre.promptHash!);
+        // 9) Postflight settlement + audit
+        await settlePostflight(redis, policy, reserveCents, actualCostCents);
+        settled = true;
 
-        const mock = {
-          id: "mock-chatcmpl",
-          object: "chat.completion",
-          created: Math.floor(Date.now() / 1000),
-          model: requestedModel,
-          choices: [{ index: 0, message: { role: "assistant", content: "OK" }, finish_reason: "stop" }],
-          usage: { prompt_tokens: promptTokens, completion_tokens: completionTokens, total_tokens: promptTokens + completionTokens },
-        };
+        // Spend event + optional persist remaining balance to Supabase
+        try {
+          await supa.insertSpendEvent({
+            agent_id: agent.id,
+            user_id: agent.user_id,
+            provider: "openai",
+            model: requestedModel,
+            prompt_tokens: Math.max(0, Math.trunc(promptTokens)),
+            completion_tokens: Math.max(0, Math.trunc(completionTokens)),
+            cost_cents: Math.max(0, Math.trunc(actualCostCents)),
+            request_id: requestId,
+          });
 
+          const newBalanceRaw = await redis.cmd<string | null>("GET", `allow:balance:${agent.id}`);
+          if (newBalanceRaw) {
+            const newBalance = Number(newBalanceRaw);
+            if (Number.isFinite(newBalance)) {
+              await supa.updateAgentPolicyBalance(agent.id, Math.trunc(newBalance));
+            }
+          }
+        } catch (e) {
+          console.log("SPEND_PERSIST_FAIL", String((e as any)?.message ?? e));
+        }
+
+        const tripped = await checkCircuitBreakerPostflight(redis, policy, pre.promptHash!);
+        if (tripped) {
+          fireWebhookBestEffort(ctx, agent, "circuit_breaker_tripped", {
+            model: requestedModel,
+            reason: "Circuit breaker tripped: repeated prompt loop detected.",
+            requestId,
+          });
+          return err(429, "circuit_breaker_tripped", "Circuit breaker tripped: repeated prompt loop detected.", requestId);
+        }
+
+        // Cache successful response for idempotency AFTER settlement
         if (idemKey) {
-          await redis.cmd("SET", idemKey, JSON.stringify(mock));
+          await redis.cmd("SET", idemKey, JSON.stringify(upstreamJson));
           await redis.cmd("EXPIRE", idemKey, "86400");
         }
 
-        return new Response(JSON.stringify(mock), { headers: { "content-type": "application/json" } });
-      }
-
-      // 7) Forward to OpenAI (REAL)
-      const upstream = await fetch(env.OPENAI_API_BASE + "/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${openaiKey}`,
-        },
-        body: JSON.stringify(body),
-      });
-
-      const upstreamJson = await upstream.json().catch(() => ({
-        error: { message: "Upstream returned non-JSON" },
-      }));
-
-      if (!upstream.ok) {
-        // Refund reservation on upstream failure (you can change this policy later if desired)
-        await settlePostflight(redis, policy, pre.reserveCents!, 0);
-
         return new Response(JSON.stringify(upstreamJson), {
-          status: upstream.status,
           headers: { "content-type": "application/json" },
         });
-      }
-
-      // 8) Compute actual cost from usage
-      const usage = (upstreamJson as any)?.usage ?? {};
-      const promptTokens = Number(usage.prompt_tokens ?? 0);
-      const completionTokens = Number(usage.completion_tokens ?? 0);
-
-      const actualCostCents = estimateCostCents(requestedModel, promptTokens, completionTokens, env);
-
-      // 9) Postflight settlement + audit
-      await settlePostflight(redis, policy, pre.reserveCents!, actualCostCents);
-
-      // Spend event + optional persist remaining balance to Supabase
-      try {
-        await supa.insertSpendEvent({
-          agent_id: agent.id,
-          user_id: agent.user_id,
-          provider: "openai",
-          model: requestedModel,
-          prompt_tokens: Math.max(0, Math.trunc(promptTokens)),
-          completion_tokens: Math.max(0, Math.trunc(completionTokens)),
-          cost_cents: Math.max(0, Math.trunc(actualCostCents)),
-          request_id: requestId,
-        });
-
-        const newBalanceRaw = await redis.cmd<string | null>("GET", `allow:balance:${agent.id}`);
-        if (newBalanceRaw) {
-          const newBalance = Number(newBalanceRaw);
-          if (Number.isFinite(newBalance)) {
-            await supa.updateAgentPolicyBalance(agent.id, Math.trunc(newBalance));
+      } finally {
+        // If anything threw after preflight but before settlement, refund reservation.
+        if (reserved && !settled) {
+          try {
+            await settlePostflight(redis, policy, reserveCents, 0);
+          } catch (e) {
+            console.log("SETTLE_FAIL", String((e as any)?.message ?? e));
           }
         }
-      } catch (e) {
-        console.log("SPEND_PERSIST_FAIL", String((e as any)?.message ?? e));
       }
-
-      const tripped = await checkCircuitBreakerPostflight(redis, policy, pre.promptHash!);
-      if (tripped) {
-        return err(
-          429,
-          "circuit_breaker_tripped",
-          "Circuit breaker tripped: repeated prompt loop detected.",
-          requestId
-        );
-      }
-
-      // Cache successful response for idempotency AFTER settlement
-      if (idemKey) {
-        await redis.cmd("SET", idemKey, JSON.stringify(upstreamJson));
-        await redis.cmd("EXPIRE", idemKey, "86400");
-      }
-
-      return new Response(JSON.stringify(upstreamJson), {
-        headers: { "content-type": "application/json" },
-      });
     } catch (e: any) {
       return err(500, "internal_error", String(e?.message ?? e), requestId);
     }
