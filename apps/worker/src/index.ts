@@ -20,10 +20,9 @@ function getBearer(req: Request): string | null {
 }
 
 function err(status: number, code: string, message: string, requestId: string) {
-  // Keep compatibility with your existing errors.ts signature:
-  // jsonError(status, message, extra?)
-  return jsonError(status, message, { code, request_id: requestId });
+  return jsonError(status, code, message, undefined, requestId);
 }
+
 
 export default {
   async fetch(req: Request, env: any, ctx: ExecutionContext): Promise<Response> {
@@ -125,7 +124,14 @@ export default {
       };
 
       // 4) Preflight (ATOMIC reserve + velocity check)
-      const pre = await enforcePreflight(redis, env.ALLOWANCE_KEY_PEPPER, policy, requestedModel, body);
+      const pre = await enforcePreflight(
+        redis,
+        env.ALLOWANCE_KEY_PEPPER,
+        policy,
+        requestedModel,
+        body,
+        { PRICING_JSON: env.PRICING_JSON }
+      );
       if (!pre.ok) {
         return err(pre.status!, pre.code!, pre.message!, requestId);
       }

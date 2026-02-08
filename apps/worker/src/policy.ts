@@ -2,6 +2,7 @@
 
 import { UpstashRedis } from "./redis";
 import { hmacSha256Hex } from "./crypto";
+import { estimateCostCents } from "./pricing";
 
 export const KEY_PREFIX = "allow:";
 
@@ -130,8 +131,9 @@ export async function enforcePreflight(
   redis: UpstashRedis,
   pepper: string,
   policy: Policy,
-  _model: string,
-  body: any
+  model: string,
+  body: any,
+  env?: { PRICING_JSON?: string }
 ): Promise<{
   ok: boolean;
   reserveCents?: number;
@@ -153,10 +155,25 @@ export async function enforcePreflight(
     };
   }
 
-  // Estimate reserve (simple heuristic; final cost is settled postflight)
+  // Estimate reserve using model pricing + worst-case output tokens
   const prompt = JSON.stringify(body?.messages ?? []);
-  const tokens = Math.max(1, Math.ceil(prompt.length / 4));
-  const reserveCents = Math.max(1, Math.trunc(Math.ceil(tokens * 0.02)));
+  const promptTokens = Math.max(1, Math.ceil(prompt.length / 4));
+
+  // Support multiple client conventions
+  const maxOutRaw =
+    body?.max_output_tokens ??
+    body?.max_tokens ??
+    body?.max_completion_tokens ??
+    0;
+
+  // If user didn't specify, choose a conservative default (tune later)
+  const maxOutputTokens = Math.max(0, Math.trunc(Number(maxOutRaw) || 0)) || 256;
+
+  // Worst-case cost = promptTokens + maxOutputTokens
+  let reserveCents = estimateCostCents(model, promptTokens, maxOutputTokens, env);
+
+  // Safety margin to reduce under-reserve risk (10%)
+  reserveCents = Math.max(1, Math.ceil(reserveCents * 1.1));
 
   const promptHash = await hmacSha256Hex(pepper, prompt);
 
@@ -228,20 +245,54 @@ export async function settlePostflight(
   policy: Policy,
   reservedCents: number,
   actualCents: number
-): Promise<{ finalBalanceCents: number }> {
+): Promise<{ finalBalanceCents: number; froze?: boolean }> {
   const p = normalizePolicy(policy);
 
   const balanceKey = `${KEY_PREFIX}balance:${p.agentId}`;
-
-  const raw = await redis.cmd<string | null>("GET", balanceKey);
-  let balance = raw === null ? p.balanceCents : toInt(raw, p.balanceCents);
+  const frozenKey = `${KEY_PREFIX}frozen:${p.agentId}`;
 
   const reserved = Math.max(0, toInt(reservedCents, 0));
   const actual = Math.max(0, toInt(actualCents, 0));
 
-  const refund = reserved - actual; // positive => refund, negative => extra charge
-  balance = balance + refund;
+  // positive => refund, negative => extra charge
+  const refund = reserved - actual;
 
-  await redis.cmd("SET", balanceKey, String(balance));
-  return { finalBalanceCents: balance };
+  const lua = `
+    local balanceKey = KEYS[1]
+    local frozenKey  = KEYS[2]
+    local refund     = tonumber(ARGV[1])
+    local initialBal = tonumber(ARGV[2])
+
+    -- initialize if missing
+    if redis.call("EXISTS", balanceKey) == 0 then
+      redis.call("SET", balanceKey, initialBal)
+    end
+
+    local newBal = redis.call("INCRBY", balanceKey, refund)
+
+    -- clamp + freeze if negative
+    if newBal < 0 then
+      redis.call("SET", frozenKey, "1")
+      redis.call("SET", balanceKey, "0")
+      return {0, 1}
+    end
+
+    return {newBal, 0}
+  `;
+
+  const res = await redis.cmd<any>(
+    "EVAL",
+    lua,
+    "2",
+    balanceKey,
+    frozenKey,
+    String(refund),
+    String(p.balanceCents)
+  );
+
+  // res is {balance, frozeFlag}
+  const finalBalanceCents = Array.isArray(res) ? Number(res[0]) : Number(res);
+  const froze = Array.isArray(res) ? Number(res[1]) === 1 : false;
+
+  return { finalBalanceCents, froze };
 }
