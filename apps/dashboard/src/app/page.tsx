@@ -139,7 +139,7 @@ export default function MarketingHome() {
                   See how it works
                 </a>
                 <span className="text-xs text-zinc-500">
-                  YC-ready control plane for agent spend.
+                  
                 </span>
               </div>
 
