@@ -249,6 +249,8 @@ export async function settlePostflight(
   const p = normalizePolicy(policy);
 
   const balanceKey = `${KEY_PREFIX}balance:${p.agentId}`;
+  const velocityKey = `${KEY_PREFIX}velocity:${p.agentId}`;
+
   const frozenKey = `${KEY_PREFIX}frozen:${p.agentId}`;
 
   const reserved = Math.max(0, toInt(reservedCents, 0));
@@ -256,21 +258,49 @@ export async function settlePostflight(
 
   // positive => refund, negative => extra charge
   const refund = reserved - actual;
+  // Adjust velocity to reflect actual spend in the window
+  // Preflight increments velocity by `reserved`, so postflight should apply (actual - reserved)
+  const deltaVel = actual - reserved;
 
   const lua = `
     local balanceKey = KEYS[1]
     local frozenKey  = KEYS[2]
+    local velKey     = KEYS[3]
+
     local refund     = tonumber(ARGV[1])
     local initialBal = tonumber(ARGV[2])
+    local deltaVel   = tonumber(ARGV[3])
+    local win        = tonumber(ARGV[4])
 
-    -- initialize if missing
+    -- initialize balance if missing
     if redis.call("EXISTS", balanceKey) == 0 then
       redis.call("SET", balanceKey, initialBal)
     end
 
+    -- apply balance refund/extra charge
     local newBal = redis.call("INCRBY", balanceKey, refund)
 
-    -- clamp + freeze if negative
+    -- initialize velocity if missing (keep TTL behavior stable)
+    if redis.call("EXISTS", velKey) == 0 then
+      redis.call("SET", velKey, 0)
+      redis.call("EXPIRE", velKey, win)
+    end
+
+    -- apply velocity adjustment so velocity tracks ACTUAL spend
+    local newVel = redis.call("INCRBY", velKey, deltaVel)
+
+    -- clamp velocity at 0 (in case of edge cases)
+    if newVel < 0 then
+      redis.call("SET", velKey, 0)
+    end
+
+    -- ensure TTL exists
+    local ttl = redis.call("TTL", velKey)
+    if ttl < 0 then
+      redis.call("EXPIRE", velKey, win)
+    end
+
+    -- clamp + freeze if negative balance
     if newBal < 0 then
       redis.call("SET", frozenKey, "1")
       redis.call("SET", balanceKey, "0")
@@ -280,15 +310,20 @@ export async function settlePostflight(
     return {newBal, 0}
   `;
 
+
   const res = await redis.cmd<any>(
     "EVAL",
     lua,
-    "2",
+    "3",
     balanceKey,
     frozenKey,
+    velocityKey,
     String(refund),
-    String(p.balanceCents)
+    String(p.balanceCents),
+    String(deltaVel),
+    String(p.velocityWindowSeconds)
   );
+
 
   // res is {balance, frozeFlag}
   const finalBalanceCents = Array.isArray(res) ? Number(res[0]) : Number(res);

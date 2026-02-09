@@ -42,30 +42,17 @@ res = client.chat.completions.create(
 
 print(res.choices[0].message.content)`}</pre>
 
-      <h2>Streaming</h2>
-      <p>Forsig supports SSE streaming and settles cost after the stream ends.</p>
-      <pre>{`const stream = await client.chat.completions.create({
-  model: "gpt-4o-mini",
-  messages: [{ role: "user", content: "Stream me" }],
-  stream: true,
-});
-
-for await (const chunk of stream) {
-  process.stdout.write(chunk.choices?.[0]?.delta?.content || "");
-}`}</pre>
-
       <h2>Idempotency</h2>
       <p>
-        For non-stream requests, set <code>Idempotency-Key</code> to safely retry without double-charging.
-        For streaming requests, Forsig prevents duplicates while a stream is in progress (409 on duplicates).
+        Set <code>Idempotency-Key</code> to safely retry without double-charging.
       </p>
 
       <h2>Headers Forsig adds</h2>
       <ul>
         <li><code>X-Allowance-Agent-Id</code></li>
-        <li><code>X-Allowance-Reserved-Cents</code> (stream only)</li>
-        <li><code>X-Allowance-Cost-Cents</code> (non-stream)</li>
-        <li><code>X-Allowance-Balance-Cents</code> (non-stream)</li>
+        <li><code>X-Allowance-Reserved-Cents</code></li>
+        <li><code>X-Allowance-Cost-Cents</code></li>
+        <li><code>X-Allowance-Balance-Cents</code></li>
         <li><code>X-Forsig-Request-Id</code></li>
       </ul>
 
