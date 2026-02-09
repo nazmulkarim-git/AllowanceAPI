@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { useSession } from "./_auth";
 import { motion, useReducedMotion } from "framer-motion";
 import { Plus, ArrowRight, Bot } from "lucide-react";
+import { authedFetch } from "./_api";
 
 type AgentRow = {
   id: string;
@@ -25,6 +26,7 @@ export default function AppHome() {
   const [profile, setProfile] = useState<{ email: string; is_admin: boolean } | null>(null);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [liveByAgent, setLiveByAgent] = useState<Record<string, { balance_cents: number; velocity_cents: number; frozen: boolean }>>({});
 
   const userId = session?.user?.id;
   const reduce = useReducedMotion();
@@ -69,6 +71,48 @@ export default function AppHome() {
     if (!loading) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, userId]);
+
+  useEffect(() => {
+    if (loading || agents.length === 0) return;
+    let cancelled = false;
+    let t: any = null;
+
+    const tick = async () => {
+      try {
+        const results = await Promise.all(
+          agents.map(async (a) => {
+            const res = await authedFetch(`/api/live-balance?agentId=${encodeURIComponent(a.id)}`);
+            if (!res.ok) return [a.id, null] as const;
+            const json = await res.json().catch(() => null);
+            if (!json) return [a.id, null] as const;
+            return [
+              a.id,
+              {
+                balance_cents: Number(json.balance_cents ?? 0),
+                velocity_cents: Number(json.velocity_cents ?? 0),
+                frozen: !!json.frozen,
+              },
+            ] as const;
+          })
+        );
+
+        if (!cancelled) {
+          const next: Record<string, any> = {};
+          for (const [id, val] of results) if (val) next[id] = val;
+          setLiveByAgent(next);
+        }
+      } catch {}
+
+      if (!cancelled) t = setTimeout(tick, 800);
+    };
+
+    tick();
+    return () => {
+      cancelled = true;
+      if (t) clearTimeout(t);
+    };
+  }, [loading, agents]);
+
 
   async function createAgent() {
     if (!name.trim() || !userId) return;
@@ -116,6 +160,17 @@ export default function AppHome() {
           show: { opacity: 1, y: 0, transition: { duration: 0.35, ease: "easeOut" as const } },
         },
       };
+
+  function money(cents: number) {
+    return `$${(cents / 100).toFixed(2)}`;
+  }
+
+  function windowLabel(seconds: number) {
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+    const hours = seconds / 3600;
+    return `${hours % 1 === 0 ? hours.toFixed(0) : hours.toFixed(1)}h`;
+  }
 
   return (
     <Layout userEmail={email} isAdmin={isAdmin}>
@@ -182,8 +237,14 @@ export default function AppHome() {
             {agents.map((a) => {
               const bal = ((a.balance_cents ?? 0) / 100).toFixed(2);
               const velCap = ((a.velocity_cap_cents ?? 0) / 100).toFixed(2);
-              const velMins = Math.round((a.velocity_window_seconds ?? 3600) / 60);
+              const configuredBal = a.balance_cents ?? 0;
+              const live = liveByAgent[a.id];
+              const liveBal = live?.balance_cents;
+
+              const cap = a.velocity_cap_cents ?? 0;
+              const win = a.velocity_window_seconds ?? 3600;
               const models = Array.isArray(a.allowed_models) ? a.allowed_models.join(", ") : "—";
+
               return (
                 <motion.div key={a.id} {...item}>
                   <Link href={`/app/agents/${a.id}`} className="ui-card ui-card-hover block p-5">
@@ -201,14 +262,24 @@ export default function AppHome() {
                       <div className="flex items-end justify-between gap-6 sm:justify-end">
                         <div className="text-right">
                           <div className="text-xs text-zinc-400">Balance</div>
-                          <div className="text-sm font-semibold text-white">${bal}</div>
+                          <div className="text-sm font-semibold text-white">
+                            {money(configuredBal)}
+                          </div>
+                          <div className="mt-0.5 text-[11px] text-zinc-400">
+                            Live: <span className="text-zinc-200">{liveBal != null ? money(liveBal) : "—"}</span>
+                          </div>
                         </div>
+
                         <div className="text-right">
                           <div className="text-xs text-zinc-400">Velocity</div>
                           <div className="text-sm font-semibold text-white">
-                            ${velCap} / {velMins}m
+                            {money(cap)} / {windowLabel(win)}
+                          </div>
+                          <div className="mt-0.5 text-[11px] text-zinc-400">
+                            Now: <span className="text-zinc-200">{live ? money(live.velocity_cents) : "—"}</span>
                           </div>
                         </div>
+
                         <ArrowRight className="h-4 w-4 text-zinc-500" />
                       </div>
                     </div>

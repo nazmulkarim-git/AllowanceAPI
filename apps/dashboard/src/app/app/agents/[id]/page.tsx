@@ -25,6 +25,9 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
   const [live, setLive] = useState<{ balance_cents: number; velocity_cents: number; frozen: boolean } | null>(null);
   const [allowanceKey, setAllowanceKey] = useState<string | null>(null);
   const [modelsText, setModelsText] = useState("gpt-4o-mini");
+  const [lastKeyPrefix, setLastKeyPrefix] = useState<string | null>(null);
+  const [lastKeyRevokedAt, setLastKeyRevokedAt] = useState<string | null>(null);
+
   const userId = session?.user?.id;
 
   async function load() {
@@ -49,6 +52,13 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
       .order("created_at", { ascending: false })
       .limit(1);
     if (!keys?.length || keys[0].revoked_at) setAllowanceKey(null);
+    if (keys?.length) {
+      setLastKeyPrefix(keys[0].prefix ?? null);
+      setLastKeyRevokedAt(keys[0].revoked_at ?? null);
+    } else {
+      setLastKeyPrefix(null);
+      setLastKeyRevokedAt(null);
+    }
   }
 
   useEffect(() => {
@@ -201,20 +211,34 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
               <span className="ui-pill">live</span>
             </div>
 
-            {live ? (
+            {live && policy ? (
               <div className="mt-2 text-xs text-zinc-400">
-                Gateway cache: <span className="text-white">${(live.balance_cents / 100).toFixed(2)}</span> • Velocity:{" "}
+                Configured: <span className="text-white">${(policy.balance_cents / 100).toFixed(2)}</span> •{" "}
+                Live remaining: <span className="text-white">${(live.balance_cents / 100).toFixed(2)}</span> •{" "}
+                Spent: <span className="text-white">${((policy.balance_cents - live.balance_cents) / 100).toFixed(2)}</span>
+                <span className="mx-2 text-zinc-600">|</span>
+                Velocity now: <span className="text-white">${(live.velocity_cents / 100).toFixed(2)}</span> /{" "}
+                <span className="text-white">${(policy.velocity_cap_cents / 100).toFixed(2)}</span>{" "}
+                per <span className="text-white">{policy.velocity_window_seconds}s</span>
+                {live.frozen ? <span className="ml-2 ui-pill">frozen</span> : null}
+              </div>
+            ) : live ? (
+              <div className="mt-2 text-xs text-zinc-400">
+                Live remaining: <span className="text-white">${(live.balance_cents / 100).toFixed(2)}</span> • Velocity now:{" "}
                 <span className="text-white">${(live.velocity_cents / 100).toFixed(2)}</span>
                 {live.frozen ? <span className="ml-2 ui-pill">frozen</span> : null}
               </div>
             ) : null}
+
 
             {!policy ? (
               <div className="mt-4 text-sm text-zinc-400">No policy found.</div>
             ) : (
               <div className="mt-4 grid gap-4">
                 <div className="grid gap-2">
-                  <label className="ui-label">Balance (cents)</label>
+                  <label className="ui-label">
+                    Balance (cents) <span className="text-zinc-500">(${(policy.balance_cents / 100).toFixed(2)})</span>
+                  </label>
                   <input
                     className="ui-input"
                     inputMode="numeric"
@@ -336,8 +360,24 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
                 </div>
               ) : (
                 <div className="ui-empty">
-                  <div className="ui-empty-title">No active key</div>
-                  <div className="ui-empty-subtitle">Mint a new key to authenticate agent calls.</div>
+                  {lastKeyPrefix ? (
+                    <>
+                      <div className="ui-empty-title">Key exists (hidden)</div>
+                      <div className="ui-empty-subtitle">
+                        Prefix: <span className="text-zinc-200">{lastKeyPrefix}</span>{" "}
+                        {live?.frozen ? <span className="ml-2 ui-pill">frozen</span> : null}
+                        {lastKeyRevokedAt ? <span className="ml-2 ui-pill">revoked</span> : null}
+                      </div>
+                      <div className="mt-2 text-xs text-zinc-500">
+                        For safety, the full key is only shown once during mint.
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="ui-empty-title">No key yet</div>
+                      <div className="ui-empty-subtitle">Mint a new key to authenticate agent calls.</div>
+                    </>
+                  )}
                 </div>
               )}
 
