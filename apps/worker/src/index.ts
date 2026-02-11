@@ -193,10 +193,15 @@ export default {
       const pre = await enforcePreflight(
         redis,
         env.ALLOWANCE_KEY_PEPPER,
+        supa,
         policy,
         requestedModel,
         body,
-        { PRICING_JSON: env.PRICING_JSON }
+        {
+          PRICING_JSON: env.PRICING_JSON,
+          UNKNOWN_INPUT_PER_1M: env.UNKNOWN_INPUT_PER_1M,
+          UNKNOWN_OUTPUT_PER_1M: env.UNKNOWN_OUTPUT_PER_1M,
+        }
       );
       if (!pre.ok) {
         // fire webhook for trip errors

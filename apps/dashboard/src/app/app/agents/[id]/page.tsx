@@ -402,32 +402,32 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
               <h2 className="text-sm font-semibold text-white">Audit</h2>
               <p className="mt-1 text-sm text-zinc-400">Spend + token usage for this agent.</p>
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-4">
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                   <div className="text-xs text-zinc-400">Total spend</div>
-                  <div className="mt-1 text-lg font-semibold text-white">
+                  <div className="mt-1 text-lg font-semibold text-white break-all tabular-nums leading-tight">
                     ${((auditSummary?.cost_cents ?? 0) / 100).toFixed(2)}
                   </div>
                 </div>
 
                 <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                   <div className="text-xs text-zinc-400">Requests</div>
-                  <div className="mt-1 text-lg font-semibold text-white">{auditSummary?.request_count ?? 0}</div>
+                  <div className="mt-1 text-lg font-semibold text-white break-all tabular-nums leading-tight">{auditSummary?.request_count ?? 0}</div>
                 </div>
 
                 <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                   <div className="text-xs text-zinc-400">Prompt tokens</div>
-                  <div className="mt-1 text-lg font-semibold text-white">{auditSummary?.prompt_tokens ?? 0}</div>
+                  <div className="mt-1 text-lg font-semibold text-white break-all tabular-nums leading-tight">{auditSummary?.prompt_tokens ?? 0}</div>
                 </div>
 
                 <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                   <div className="text-xs text-zinc-400">Completion tokens</div>
-                  <div className="mt-1 text-lg font-semibold text-white">{auditSummary?.completion_tokens ?? 0}</div>
+                  <div className="mt-1 text-lg font-semibold text-white break-all tabular-nums leading-tight">{auditSummary?.completion_tokens ?? 0}</div>
                 </div>
               </div>
 
-              <div className="mt-6 overflow-hidden rounded-2xl border border-white/10">
-                <table className="w-full text-sm">
+              <div className="mt-6 overflow-x-auto rounded-2xl border border-white/10">
+                <table className="min-w-[720px] w-full text-sm">
                   <thead className="bg-white/[0.04] text-zinc-300">
                     <tr>
                       <th className="px-4 py-3 text-left">Model</th>

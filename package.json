@@ -9,5 +9,9 @@
     "build": "npm --workspace apps/dashboard run build && npm --workspace apps/worker run build",
     "deploy:worker": "npm --workspace apps/worker run deploy",
     "deploy:dashboard": "npm --workspace apps/dashboard run deploy"
+  },
+  "dependencies": {
+    "framer-motion": "^12.34.0",
+    "lucide-react": "^0.563.0"
   }
 }

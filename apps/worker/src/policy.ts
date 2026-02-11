@@ -2,7 +2,8 @@
 
 import { UpstashRedis } from "./redis";
 import { hmacSha256Hex } from "./crypto";
-import { estimateCostCents } from "./pricing";
+import { estimateCostCentsDbFirst } from "./pricing";
+import type { SupabaseAdmin } from "./supabase";
 
 export const KEY_PREFIX = "allow:";
 
@@ -130,10 +131,11 @@ return {"OK"}
 export async function enforcePreflight(
   redis: UpstashRedis,
   pepper: string,
+  supa: SupabaseAdmin,
   policy: Policy,
   model: string,
   body: any,
-  env?: { PRICING_JSON?: string }
+  env?: { PRICING_JSON?: string; UNKNOWN_INPUT_PER_1M?: string; UNKNOWN_OUTPUT_PER_1M?: string }
 ): Promise<{
   ok: boolean;
   reserveCents?: number;
@@ -170,7 +172,7 @@ export async function enforcePreflight(
   const maxOutputTokens = Math.max(0, Math.trunc(Number(maxOutRaw) || 0)) || 256;
 
   // Worst-case cost = promptTokens + maxOutputTokens
-  let reserveCents = estimateCostCents(model, promptTokens, maxOutputTokens, env);
+  let reserveCents = await estimateCostCentsDbFirst(supa, model, promptTokens, maxOutputTokens, env);
 
   // Safety margin to reduce under-reserve risk (10%)
   reserveCents = Math.max(1, Math.ceil(reserveCents * 1.1));
