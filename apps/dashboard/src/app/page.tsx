@@ -701,7 +701,7 @@ function ScrollStory() {
   const ref = useRef<HTMLDivElement | null>(null);
   const { scrollYProgress } = useScroll({
     target: ref,
-    offset: ["start start", "end end"],
+    offset: ["start end", "end start"],
   });
 
   const prog = useSpring(scrollYProgress, { stiffness: 120, damping: 22 });
@@ -1111,11 +1111,12 @@ export default function Page() {
 
         <div className="flex items-center gap-2">
           <a
-            href="/app"
+            href="#demo"
             className="hidden rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-sm text-white/70 hover:bg-white/[0.08] sm:inline-flex"
           >
-            Dashboard
+            Live demo
           </a>
+
           <Magnetic>
             <a
               href="/app"
@@ -1163,13 +1164,13 @@ export default function Page() {
             <motion.div variants={fadeUp} custom={0.22} className="mt-7 flex flex-col gap-3 sm:flex-row">
               <Magnetic>
                 <a
-                  href="/app"
+                  href="#demo"
                   className={cn(
                     "inline-flex items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white px-5 py-3 text-sm font-semibold text-black transition hover:bg-white/90",
                     shimmer
                   )}
                 >
-                  Start in dashboard
+                  Try the demo
                   <ArrowRight className="h-4 w-4" />
                 </a>
               </Magnetic>
@@ -1223,7 +1224,7 @@ export default function Page() {
       </section>
 
       {/* (1) Budget demo */}
-      <section className="relative mx-auto max-w-6xl px-5 py-16">
+      <section id="demo" className="relative mx-auto max-w-6xl px-5 py-16">
         <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-120px" }}>
           <SectionTitle
             eyebrow="Interactive demo"
