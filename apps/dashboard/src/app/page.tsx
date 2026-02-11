@@ -8,6 +8,7 @@ import {
   useSpring,
   useTransform,
   useScroll,
+  type Variants,
 } from "framer-motion";
 import {
   ArrowRight,
@@ -31,13 +32,15 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 
-const fadeUp = {
+const EASE = [0.2, 0.8, 0.2, 1] as const; // typed cubic-bezier tuple
+
+const fadeUp: Variants = {
   hidden: { opacity: 0, y: 18, filter: "blur(8px)" },
-  visible: (d = 0) => ({
+  visible: (d: number = 0) => ({
     opacity: 1,
     y: 0,
     filter: "blur(0px)",
-    transition: { duration: 0.7, ease: [0.2, 0.8, 0.2, 1], delay: d },
+    transition: { duration: 0.7, ease: EASE, delay: d },
   }),
 };
 
@@ -565,7 +568,7 @@ function PricingTable({
             initial={{ opacity: 0, y: 10, filter: "blur(6px)" }}
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
             exit={{ opacity: 0, y: -8, filter: "blur(6px)" }}
-            transition={{ duration: 0.45, ease: [0.2, 0.8, 0.2, 1] }}
+            transition={{ duration: 0.45, ease: EASE }}
             className="mt-6"
           >
             <div className="grid gap-3 sm:grid-cols-2">
@@ -820,7 +823,7 @@ function ScrollStory() {
                 initial={{ opacity: 0, y: 10, filter: "blur(8px)" }}
                 animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
                 exit={{ opacity: 0, y: -10, filter: "blur(8px)" }}
-                transition={{ duration: 0.5, ease: [0.2, 0.8, 0.2, 1] }}
+                transition={{ duration: 0.5, ease: EASE }}
               >
                 <div className="flex items-center gap-3">
                   <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.05]">
@@ -1046,7 +1049,7 @@ Everything is accounted for.`,
               key={tab}
               initial={{ opacity: 0, y: 10, filter: "blur(6px)" }}
               animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-              transition={{ duration: 0.5, ease: [0.2, 0.8, 0.2, 1] }}
+              transition={{ duration: 0.5, ease: EASE }}
               className="mt-3 overflow-hidden whitespace-pre-wrap rounded-xl border border-white/10 bg-black/60 p-4 text-xs leading-relaxed text-white/75"
             >
               {snippets[tab]}
