@@ -11,7 +11,7 @@ import { UpstashRedis } from "./redis";
 import { jsonError } from "./errors";
 import { SupabaseAdmin } from "./supabase";
 import { sha256Hex, decryptAesGcmB64 } from "./crypto";
-import { estimateCostCents } from "./pricing";
+import { estimateCostCentsDbFirst } from "./pricing";
 import { sendWebhook, TripEvent } from "./webhook";
 
 function getBearer(req: Request): string | null {
@@ -241,7 +241,13 @@ export default {
         if (String(env.MOCK_OPENAI ?? "") === "1") {
           const promptTokens = 1;
           const completionTokens = 1;
-          const actualCostCents = estimateCostCents(requestedModel, promptTokens, completionTokens, env);
+          const actualCostCents = await estimateCostCentsDbFirst(
+            supa,
+            requestedModel,
+            promptTokens,
+            completionTokens,
+            env
+          );
 
           await settlePostflight(redis, policy, reserveCents, actualCostCents);
           settled = true;
@@ -306,7 +312,13 @@ export default {
         const usage = (upstreamJson as any)?.usage ?? {};
         const promptTokens = Number(usage.prompt_tokens ?? 0);
         const completionTokens = Number(usage.completion_tokens ?? 0);
-        const actualCostCents = estimateCostCents(requestedModel, promptTokens, completionTokens, env);
+        const actualCostCents = await estimateCostCentsDbFirst(
+          supa,
+          requestedModel,
+          promptTokens,
+          completionTokens,
+          env
+        );
 
         // 9) Postflight settlement + audit
         await settlePostflight(redis, policy, reserveCents, actualCostCents);

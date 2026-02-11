@@ -59,6 +59,8 @@ create table if not exists public.agent_policies (
 create table if not exists public.spend_events (
   id uuid primary key default gen_random_uuid(),
   agent_id uuid not null references public.agents(id) on delete cascade,
+  user_id uuid not null,
+  provider text not null default 'openai',
   ts timestamptz not null default now(),
   model text,
   prompt_tokens int,
@@ -66,7 +68,6 @@ create table if not exists public.spend_events (
   cost_cents int not null,
   request_id text
 );
-
 -- RLS
 alter table public.profiles enable row level security;
 alter table public.provider_keys enable row level security;
@@ -191,3 +192,35 @@ create or replace view public.agents_with_policy as
 select a.*, p.balance_cents, p.allowed_models, p.circuit_breaker_n, p.velocity_window_seconds, p.velocity_cap_cents, p.webhook_url, p.webhook_secret
 from public.agents a
 left join public.agent_policies p on p.agent_id = a.id;
+
+create or replace view public.agent_spend_summary as
+select
+  se.agent_id,
+  min(se.ts) as first_ts,
+  max(se.ts) as last_ts,
+  count(*) as request_count,
+  coalesce(sum(se.prompt_tokens), 0) as prompt_tokens,
+  coalesce(sum(se.completion_tokens), 0) as completion_tokens,
+  coalesce(sum(se.cost_cents), 0) as cost_cents
+from public.spend_events se
+group by se.agent_id;
+
+create or replace view public.agent_spend_by_model as
+select
+  se.agent_id,
+  se.model,
+  count(*) as request_count,
+  coalesce(sum(se.prompt_tokens), 0) as prompt_tokens,
+  coalesce(sum(se.completion_tokens), 0) as completion_tokens,
+  coalesce(sum(se.cost_cents), 0) as cost_cents
+from public.spend_events se
+group by se.agent_id, se.model;
+
+-- Pricing
+create table if not exists public.model_pricing (
+  model text primary key,
+  input_per_1m numeric not null,
+  output_per_1m numeric not null,
+  cached_input_per_1m numeric
+);
+

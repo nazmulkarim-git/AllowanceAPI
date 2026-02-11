@@ -128,7 +128,7 @@ export default function AppHome() {
       await supabase.from("agent_policies").insert({
         agent_id: a.id,
         balance_cents: 200,
-        allowed_models: ["gpt-4o-mini"],
+        allowed_models: [], // empty => allow all models (worker already behaves this way)
         circuit_breaker_n: 10,
         velocity_window_seconds: 3600,
         velocity_cap_cents: 50,

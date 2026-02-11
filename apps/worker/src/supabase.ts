@@ -33,6 +33,23 @@ export class SupabaseAdmin {
     return rows?.[0] ?? null;
   }
 
+  async getModelPricing(model: string): Promise<{
+    model: string;
+    input_per_1m: number;
+    output_per_1m: number;
+    cached_input_per_1m?: number | null;
+  } | null> {
+    const q = new URLSearchParams({
+      select: "model,input_per_1m,output_per_1m,cached_input_per_1m",
+      model: `eq.${model}`,
+      limit: "1",
+    });
+
+    const rows = await this.request<any[]>(`/rest/v1/model_pricing?${q.toString()}`, { method: "GET" });
+    return rows?.[0] ?? null;
+  }
+
+
   async getAgentWithPolicy(agentId: string): Promise<{
     id: string; user_id: string; status: string;
     balance_cents: number;

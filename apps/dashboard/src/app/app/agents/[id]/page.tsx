@@ -24,11 +24,14 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [live, setLive] = useState<{ balance_cents: number; velocity_cents: number; frozen: boolean } | null>(null);
   const [allowanceKey, setAllowanceKey] = useState<string | null>(null);
-  const [modelsText, setModelsText] = useState("gpt-4o-mini");
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [selectedModels, setSelectedModels] = useState<string[]>([]);
   const [lastKeyPrefix, setLastKeyPrefix] = useState<string | null>(null);
   const [lastKeyRevokedAt, setLastKeyRevokedAt] = useState<string | null>(null);
 
   const userId = session?.user?.id;
+  const [auditSummary, setAuditSummary] = useState<any | null>(null);
+  const [auditByModel, setAuditByModel] = useState<any[]>([]);
 
   async function load() {
     if (!userId) return;
@@ -42,7 +45,7 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
     const pol = await supabase.from("agent_policies").select("*").eq("agent_id", params.id).single();
     if (!pol.error) {
       setPolicy(pol.data as any);
-      setModelsText(((pol.data as any).allowed_models ?? []).join(","));
+      setSelectedModels((pol.data as any).allowed_models ?? []);
     }
 
     const { data: keys } = await supabase
@@ -59,6 +62,18 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
       setLastKeyPrefix(null);
       setLastKeyRevokedAt(null);
     }
+
+    const sum = await supabase.from("agent_spend_summary").select("*").eq("agent_id", params.id).single();
+      if (!sum.error) setAuditSummary(sum.data);
+
+      const byModel = await supabase
+        .from("agent_spend_by_model")
+        .select("*")
+        .eq("agent_id", params.id)
+        .order("cost_cents", { ascending: false });
+
+      if (!byModel.error) setAuditByModel(byModel.data ?? []);
+
   }
 
   useEffect(() => {
@@ -106,12 +121,23 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
     await load();
   }
 
+  useEffect(() => {
+    if (loading || !userId) return;
+
+    (async () => {
+      try {
+        const res = await authedFetch("/api/openai-models");
+        const json = await res.json().catch(() => null);
+        if (res.ok && json?.models?.length) setAvailableModels(json.models);
+      } catch {
+        // fallback: keep empty list
+      }
+    })();
+  }, [loading, userId]);
+
   async function savePolicy() {
     if (!policy) return;
-    const allowed_models = modelsText
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const allowed_models = selectedModels;
     const res = await authedFetch("/api/save-policy", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -251,9 +277,42 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
                 </div>
 
                 <div className="grid gap-2">
-                  <label className="ui-label">Allowed models (comma-separated)</label>
-                  <input className="ui-input" value={modelsText} onChange={(e) => setModelsText(e.target.value)} />
-                  <div className="text-xs text-zinc-500">Example: gpt-4o-mini, gpt-4.1-mini</div>
+                  <label className="ui-label">Allowed models</label>
+
+                    <select
+                      className="ui-input h-40"
+                      multiple
+                      value={selectedModels}
+                      onChange={(e) => {
+                        const opts = Array.from(e.target.selectedOptions).map((o) => o.value);
+                        setSelectedModels(opts);
+                      }}
+                    >
+                      {availableModels.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+
+                    <div className="text-xs text-zinc-500">
+                      Tip: Select none (empty) to allow all models.
+                    </div>
+
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <button className="ui-btn" type="button" onClick={() => setSelectedModels([])}>
+                        Allow all
+                      </button>
+                      <button
+                        className="ui-btn"
+                        type="button"
+                        onClick={() => setSelectedModels(availableModels)}
+                        disabled={!availableModels.length}
+                      >
+                        Select all
+                      </button>
+                    </div>
+
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -337,6 +396,69 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
               <h2 className="text-sm font-semibold text-white">Allowance key</h2>
               <span className="ui-pill">auth</span>
             </div>
+
+            {/* Audit */}
+            <div className="ui-card p-6">
+              <h2 className="text-sm font-semibold text-white">Audit</h2>
+              <p className="mt-1 text-sm text-zinc-400">Spend + token usage for this agent.</p>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-4">
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                  <div className="text-xs text-zinc-400">Total spend</div>
+                  <div className="mt-1 text-lg font-semibold text-white">
+                    ${((auditSummary?.cost_cents ?? 0) / 100).toFixed(2)}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                  <div className="text-xs text-zinc-400">Requests</div>
+                  <div className="mt-1 text-lg font-semibold text-white">{auditSummary?.request_count ?? 0}</div>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                  <div className="text-xs text-zinc-400">Prompt tokens</div>
+                  <div className="mt-1 text-lg font-semibold text-white">{auditSummary?.prompt_tokens ?? 0}</div>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                  <div className="text-xs text-zinc-400">Completion tokens</div>
+                  <div className="mt-1 text-lg font-semibold text-white">{auditSummary?.completion_tokens ?? 0}</div>
+                </div>
+              </div>
+
+              <div className="mt-6 overflow-hidden rounded-2xl border border-white/10">
+                <table className="w-full text-sm">
+                  <thead className="bg-white/[0.04] text-zinc-300">
+                    <tr>
+                      <th className="px-4 py-3 text-left">Model</th>
+                      <th className="px-4 py-3 text-right">Requests</th>
+                      <th className="px-4 py-3 text-right">Prompt</th>
+                      <th className="px-4 py-3 text-right">Completion</th>
+                      <th className="px-4 py-3 text-right">Spend</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-zinc-200">
+                    {auditByModel.map((r) => (
+                      <tr key={r.model ?? "unknown"} className="border-t border-white/10">
+                        <td className="px-4 py-3">{r.model ?? "unknown"}</td>
+                        <td className="px-4 py-3 text-right">{r.request_count ?? 0}</td>
+                        <td className="px-4 py-3 text-right">{r.prompt_tokens ?? 0}</td>
+                        <td className="px-4 py-3 text-right">{r.completion_tokens ?? 0}</td>
+                        <td className="px-4 py-3 text-right">${((r.cost_cents ?? 0) / 100).toFixed(2)}</td>
+                      </tr>
+                    ))}
+                    {!auditByModel.length ? (
+                      <tr className="border-t border-white/10">
+                        <td className="px-4 py-3 text-zinc-400" colSpan={5}>
+                          No spend events yet.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
 
             <div className="mt-4 grid gap-3">
               {allowanceKey ? (

@@ -6,6 +6,9 @@
  *   "gpt-4o": {"inputPer1M": 5.0, "outputPer1M": 15.0}
  * }
  */
+
+import type { SupabaseAdmin } from "./supabase";
+
 export type ModelPrice = { inputPer1M: number; outputPer1M: number };
 
 const DEFAULT_PRICES: Record<string, ModelPrice> = {
@@ -48,4 +51,29 @@ export function estimateCostCents(
   }
   const cost = (promptTokens / 1_000_000) * p.inputPer1M + (completionTokens / 1_000_000) * p.outputPer1M;
   return Math.max(0, Math.ceil(cost * 100));
+}
+
+export async function estimateCostCentsDbFirst(
+  supa: SupabaseAdmin,
+  model: string,
+  promptTokens: number,
+  completionTokens: number,
+  env?: { PRICING_JSON?: string }
+): Promise<number> {
+  // 1) Try DB pricing first
+  try {
+    const row = await supa.getModelPricing(model);
+    if (row && Number.isFinite(row.input_per_1m) && Number.isFinite(row.output_per_1m)) {
+      const costUsd =
+        (promptTokens / 1_000_000) * Number(row.input_per_1m) +
+        (completionTokens / 1_000_000) * Number(row.output_per_1m);
+
+      return Math.max(0, Math.ceil(costUsd * 100));
+    }
+  } catch {
+    // ignore DB errors and fall back
+  }
+
+  // 2) Fallback to env PRICING_JSON or DEFAULT_PRICES or conservative fallback
+  return estimateCostCents(model, promptTokens, completionTokens, env);
 }
