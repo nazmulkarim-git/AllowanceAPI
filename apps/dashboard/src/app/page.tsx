@@ -699,17 +699,19 @@ function PricingTable({
  *  ---------------------------- */
 function ScrollStory() {
   const ref = useRef<HTMLDivElement | null>(null);
+
+  // Progress goes 0→1 as the section itself scrolls past the top of viewport
   const { scrollYProgress } = useScroll({
     target: ref,
-    offset: ["start end", "end start"],
+    offset: ["start start", "end start"],
   });
 
   const prog = useSpring(scrollYProgress, { stiffness: 120, damping: 22 });
   const barScale = useTransform(prog, [0, 1], [0, 1]);
 
-  // Map progress to "scene" index (0..3)
   const sceneRaw = useTransform(prog, [0, 1], [0, 3]);
   const [scene, setScene] = useState(0);
+
   useEffect(() => {
     const unsub = sceneRaw.on("change", (v) => setScene(clamp(Math.round(v), 0, 3)));
     return () => unsub();
@@ -720,28 +722,28 @@ function ScrollStory() {
       {
         k: "keys",
         title: "Issue allowance keys",
-        desc: "Give teams scoped keys with budgets. Let them build fast without spend anxiety.",
+        desc: "Give teams scoped keys with budgets. Let them build fast without surprise spend.",
         bullets: ["Least-privilege access", "Per-key budget caps", "Model allowlists"],
         icon: KeyRound,
       },
       {
         k: "preflight",
         title: "Reserve preflight",
-        desc: "Forsig reserves prompt + max_output before execution. If budget fails, it blocks early.",
+        desc: "Reserve prompt + max_output before execution. If budget fails, block early.",
         bullets: ["Predictable caps", "Early fail-fast", "No runaway completions"],
         icon: Gauge,
       },
       {
         k: "settle",
         title: "Settle exact usage",
-        desc: "After provider usage returns, Forsig settles precise cost using DB model pricing.",
+        desc: "After usage returns, settle precise cost using DB-first model pricing.",
         bullets: ["DB is source of truth", "Per-model input/output", "Accurate to cents"],
         icon: Wallet,
       },
       {
         k: "audit",
         title: "Audit everything",
-        desc: "Every request is logged: spend, tokens, request metadata, and outcomes.",
+        desc: "Every request is logged: spend, tokens, metadata, outcomes — operator grade.",
         bullets: ["Operator clarity", "Exportable metrics", "Trustworthy reporting"],
         icon: LineChart,
       },
@@ -752,10 +754,16 @@ function ScrollStory() {
   const active = scenes[scene];
 
   return (
-    <div ref={ref} className="relative mt-10">
-      <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-        {/* Left scroll text blocks */}
-        <div className="space-y-6 lg:sticky lg:top-24 lg:h-[calc(100vh-8rem)] lg:overflow-hidden">
+    // IMPORTANT: This is the scroll “track” height.
+    // It creates enough scroll to animate scenes, but does NOT leave a huge empty tail.
+    <div
+      ref={ref}
+      className="relative mt-10 lg:min-h-[220vh] min-h-[160vh]"
+    >
+      {/* Sticky stage */}
+      <div className="sticky top-24">
+        <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+          {/* Left panel */}
           <div className="rounded-[28px] border border-white/10 bg-white/[0.03] p-7">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs text-white/60">
@@ -776,11 +784,11 @@ function ScrollStory() {
                 />
               </div>
               <div className="mt-2 text-[11px] text-white/45">
-                Each step explains Forsig’s core promise: control, accuracy, audit.
+                Keys → reserve → settle from DB → audit trail
               </div>
             </div>
 
-            <div className="mt-5 space-y-4">
+            <div className="mt-5 space-y-3">
               {scenes.map((s, idx) => {
                 const Icon = s.icon;
                 const isActive = idx === scene;
@@ -809,10 +817,8 @@ function ScrollStory() {
               })}
             </div>
           </div>
-        </div>
 
-        {/* Right sticky scene panel */}
-        <div className="lg:sticky lg:top-24 lg:h-[calc(100vh-8rem)]">
+          {/* Right “scene” panel */}
           <div className={cn("relative overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.03] p-7", shimmer)}>
             <div className="absolute -right-14 -top-14 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
             <div className="absolute -bottom-14 -left-14 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
@@ -851,7 +857,6 @@ function ScrollStory() {
                   ))}
                 </div>
 
-                {/* mini "system view" */}
                 <div className="mt-6 rounded-2xl border border-white/10 bg-black/55 p-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2 text-xs text-white/60">
@@ -894,14 +899,12 @@ function ScrollStory() {
               </motion.div>
             </AnimatePresence>
           </div>
-
-          {/* Spacer to create scroll length on small screens */}
-          <div className="mt-6 h-[70vh] lg:h-[160vh]" />
         </div>
       </div>
     </div>
   );
 }
+
 
 function FeatureGrid() {
   const features = [
@@ -1062,22 +1065,6 @@ Everything is accounted for.`,
 }
 
 export default function Page() {
-  // subtle parallax spotlight based on cursor
-  const mx = useMotionValue(0);
-  const my = useMotionValue(0);
-  const sx = useSpring(mx, { stiffness: 160, damping: 20 });
-  const sy = useSpring(my, { stiffness: 160, damping: 20 });
-  const bgX = useTransform(sx, (v) => `${50 + v * 0.02}%`);
-  const bgY = useTransform(sy, (v) => `${20 + v * 0.02}%`);
-
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      mx.set(e.clientX - window.innerWidth / 2);
-      my.set(e.clientY - window.innerHeight / 2);
-    };
-    window.addEventListener("mousemove", onMove);
-    return () => window.removeEventListener("mousemove", onMove);
-  }, [mx, my]);
 
   const [selectedModel, setSelectedModel] = useState<ModelKey>("gpt-4o");
 
@@ -1085,16 +1072,13 @@ export default function Page() {
     <main className="relative min-h-screen bg-black text-white">
       <Glow />
       <Noise />
-
-      <motion.div
+      <div
         aria-hidden
+        className="pointer-events-none absolute inset-0"
         style={{
           backgroundImage:
-            "radial-gradient(650px 400px at var(--x) var(--y), rgba(255,255,255,0.10), transparent 60%)",
-          ["--x" as any]: bgX,
-          ["--y" as any]: bgY,
+            "radial-gradient(700px 420px at 50% 10%, rgba(255,255,255,0.10), transparent 60%)",
         }}
-        className="pointer-events-none absolute inset-0"
       />
 
       {/* Top nav */}
