@@ -95,30 +95,17 @@ function Pill({ children, className }: { children: React.ReactNode; className?: 
 }
 
 function Magnetic({ children }: { children: React.ReactNode }) {
-  const x = useMotionValue(0);
-  const y = useMotionValue(0);
-  const sx = useSpring(x, { stiffness: 220, damping: 18 });
-  const sy = useSpring(y, { stiffness: 220, damping: 18 });
-
   return (
     <motion.div
-      style={{ x: sx, y: sy }}
-      onMouseMove={(e) => {
-        const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-        const dx = e.clientX - (rect.left + rect.width / 2);
-        const dy = e.clientY - (rect.top + rect.height / 2);
-        x.set(dx * 0.06);
-        y.set(dy * 0.06);
-      }}
-      onMouseLeave={() => {
-        x.set(0);
-        y.set(0);
-      }}
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.99 }}
+      transition={{ duration: 0.18 }}
     >
       {children}
     </motion.div>
   );
 }
+
 
 function SectionTitle({
   eyebrow,
@@ -703,17 +690,21 @@ function ScrollStory() {
   // Progress goes 0→1 as the section itself scrolls past the top of viewport
   const { scrollYProgress } = useScroll({
     target: ref,
-    offset: ["start start", "end start"],
+    offset: ["start start", "end end"],
   });
 
   const prog = useSpring(scrollYProgress, { stiffness: 120, damping: 22 });
   const barScale = useTransform(prog, [0, 1], [0, 1]);
 
-  const sceneRaw = useTransform(prog, [0, 1], [0, 3]);
+  const TOTAL_SCENES = 4;
+  const sceneRaw = useTransform(prog, [0, 1], [0, TOTAL_SCENES]);
   const [scene, setScene] = useState(0);
 
   useEffect(() => {
-    const unsub = sceneRaw.on("change", (v) => setScene(clamp(Math.round(v), 0, 3)));
+    const unsub = sceneRaw.on("change", (v) => {
+      // v can hit TOTAL_SCENES at the end; clamp back into 0..3
+      setScene(clamp(Math.floor(v), 0, TOTAL_SCENES - 1));
+    });
     return () => unsub();
   }, [sceneRaw]);
 
@@ -758,7 +749,7 @@ function ScrollStory() {
     // It creates enough scroll to animate scenes, but does NOT leave a huge empty tail.
     <div
       ref={ref}
-      className="relative mt-10 lg:min-h-[220vh] min-h-[160vh]"
+      className="relative mt-10 lg:min-h-[200vh] min-h-[150vh]"
     >
       {/* Sticky stage */}
       <div className="sticky top-24">
