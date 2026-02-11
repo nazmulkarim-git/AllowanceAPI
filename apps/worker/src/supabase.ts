@@ -85,6 +85,7 @@ export class SupabaseAdmin {
     user_id: string;
     provider: string;
     model: string;
+    kind: string;
     prompt_tokens: number;
     completion_tokens: number;
     cost_cents: number;

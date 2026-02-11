@@ -9,6 +9,17 @@
 
 import type { SupabaseAdmin } from "./supabase";
 
+type EnvLike = {
+  PRICING_JSON?: string;
+  UNKNOWN_INPUT_PER_1M?: string;
+  UNKNOWN_OUTPUT_PER_1M?: string;
+};
+
+type PriceEntry = {
+  inputPer1M: number;
+  outputPer1M: number;
+};
+
 export type ModelPrice = { inputPer1M: number; outputPer1M: number };
 
 const DEFAULT_PRICES: Record<string, ModelPrice> = {
@@ -37,21 +48,38 @@ export function loadPrices(env?: { PRICING_JSON?: string }): Record<string, Mode
   return cachedPrices;
 }
 
+function unknownPrice(env?: EnvLike) {
+  const inputPer1M = Number(env?.UNKNOWN_INPUT_PER_1M ?? "50");   // very safe
+  const outputPer1M = Number(env?.UNKNOWN_OUTPUT_PER_1M ?? "250"); // very safe
+
+  return { inputPer1M, outputPer1M };
+}
+
 export function estimateCostCents(
   model: string,
   promptTokens: number,
   completionTokens: number,
-  env?: { PRICING_JSON?: string }
+  env?: { PRICING_JSON?: string; UNKNOWN_INPUT_PER_1M?: string; UNKNOWN_OUTPUT_PER_1M?: string }
 ): number {
   const PRICES = loadPrices(env);
   const p = PRICES[model];
+
   if (!p) {
-    // Conservative fallback: $0.0001/token
-    return Math.max(0, Math.ceil((promptTokens + completionTokens) * 0.0001 * 100));
+    const u = unknownPrice(env);
+    const cost =
+      (promptTokens / 1_000_000) * u.inputPer1M +
+      (completionTokens / 1_000_000) * u.outputPer1M;
+
+    return Math.max(0, Math.ceil(cost * 100));
   }
-  const cost = (promptTokens / 1_000_000) * p.inputPer1M + (completionTokens / 1_000_000) * p.outputPer1M;
+
+  const cost =
+    (promptTokens / 1_000_000) * p.inputPer1M +
+    (completionTokens / 1_000_000) * p.outputPer1M;
+
   return Math.max(0, Math.ceil(cost * 100));
 }
+
 
 export async function estimateCostCentsDbFirst(
   supa: SupabaseAdmin,

@@ -217,10 +217,29 @@ from public.spend_events se
 group by se.agent_id, se.model;
 
 -- Pricing
-create table if not exists public.model_pricing (
-  model text primary key,
-  input_per_1m numeric not null,
-  output_per_1m numeric not null,
-  cached_input_per_1m numeric
+-- 1) Token-based pricing (per 1M tokens)
+create table if not exists public.model_pricing_tokens (
+  model text not null,
+  modality text not null,       -- 'text' | 'audio' | 'image' | 'embeddings' | 'fine_tune' | 'legacy'
+  tier text not null,           -- 'standard' | 'batch' | 'flex' | 'priority'
+  input_per_1m numeric,         -- null allowed if '-'
+  cached_input_per_1m numeric,  -- null allowed if '-'
+  output_per_1m numeric,        -- null allowed if '-'
+  notes text,
+  updated_at timestamptz not null default now(),
+  primary key (model, modality, tier)
 );
 
+-- 2) Unit-based pricing (per second / per image / per minute, etc.)
+create table if not exists public.model_pricing_units (
+  model text not null,
+  modality text not null,   -- 'video' | 'image' | 'tts' | 'transcribe'
+  unit text not null,       -- 'second' | 'image' | 'minute'
+  tier text not null default 'standard',
+  quality text,             -- e.g. 'low' | 'medium' | 'high' | 'standard' | 'hd'
+  size text,                -- e.g. '1024x1024'
+  price_per_unit numeric not null,
+  notes text,
+  updated_at timestamptz not null default now(),
+  primary key (model, modality, unit, tier, quality, size)
+);

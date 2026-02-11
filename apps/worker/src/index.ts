@@ -78,6 +78,15 @@ export default {
       if (url.pathname !== "/v1/chat/completions") {
         return err(404, "not_found", "Unknown route", requestId);
       }
+      
+      const path = url.pathname;
+      // Determine modality (kind) from OpenAI endpoint
+      const kind =
+        path.startsWith("/v1/images") ? "image" :
+        path.startsWith("/v1/audio") ? "audio" :
+        path.startsWith("/v1/embeddings") ? "embedding" :
+        path.startsWith("/v1/realtime") ? "realtime" :
+        "text";
 
       const allowKey = getBearer(req);
       if (!allowKey) {
@@ -331,6 +340,7 @@ export default {
             user_id: agent.user_id,
             provider: "openai",
             model: requestedModel,
+            kind,
             prompt_tokens: Math.max(0, Math.trunc(promptTokens)),
             completion_tokens: Math.max(0, Math.trunc(completionTokens)),
             cost_cents: Math.max(0, Math.trunc(actualCostCents)),
