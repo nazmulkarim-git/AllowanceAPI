@@ -2,282 +2,213 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Layout from "@/components/Layout";
+import { Toast, useToast } from "@/components/Toast";
 import { useSession } from "../_auth";
 import { useRouter } from "next/navigation";
 
-type AdminProfile = { email?: string; is_admin?: boolean };
+type ProfileRow = {
+  id: string;
+  email: string | null;
+  is_admin: boolean;
+  created_at: string;
+};
 
 export default function Admin() {
-  const router = useRouter();
   const { loading, session } = useSession();
+  const router = useRouter();
+  const [profile, setProfile] = useState<{ email: string; is_admin: boolean } | null>(null);
+  const [users, setUsers] = useState<ProfileRow[]>([]);
+  const [busy, setBusy] = useState(false);
+  const { toast, toastProps } = useToast();
 
-  const [isAdmin, setIsAdmin] = useState<boolean>(false);
-  const [profile, setProfile] = useState<AdminProfile | null>(null);
+  const userId = session?.user?.id;
 
-  const [users, setUsers] = useState<any[]>([]);
-  const [agents, setAgents] = useState<any[]>([]);
-  const [busyAgentId, setBusyAgentId] = useState<string | null>(null);
-
-  const email = useMemo(() => session?.user?.email ?? profile?.email ?? "", [session, profile]);
-
-  async function adminFetch(path: string, init?: RequestInit) {
-    const token = session?.access_token;
-    if (!token) throw new Error("missing_session");
-
-    const res = await fetch(path, {
-      ...(init || {}),
-      headers: {
-        ...(init?.headers || {}),
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const msg = json?.error?.message ?? res.statusText;
-      throw new Error(msg);
-    }
-    return json;
-  }
+  const adminFetch = useMemo(() => {
+    return async (path: string, init?: RequestInit) => {
+      const token = session?.access_token;
+      return fetch(path, { ...(init ?? {}), headers: { ...(init?.headers ?? {}), Authorization: `Bearer ${token}` } });
+    };
+  }, [session?.access_token]);
 
   async function load() {
-    if (!session?.access_token) return;
+    if (!userId) return;
+    const res = await adminFetch("/api/admin/users");
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return;
 
-    const prof = await adminFetch("/api/admin/me");
-    setProfile(prof?.profile);
-    setIsAdmin(!!prof?.profile?.is_admin);
-
-    const us = await adminFetch("/api/admin/users");
-    setUsers(us?.users ?? []);
-
-    const as = await adminFetch("/api/admin/agents");
-    setAgents(as?.agents ?? []);
+    setProfile(j?.profile ?? null);
+    setUsers(j?.users ?? []);
+    if (!j?.profile?.is_admin) router.replace("/app");
   }
 
   useEffect(() => {
     if (!loading) load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, session?.access_token]);
+  }, [loading, userId]);
 
-  async function agentControl(args: { type: "freeze" | "unfreeze" | "kill"; agentId: string }) {
-    setBusyAgentId(args.agentId);
+  async function setAdmin(id: string, is_admin: boolean) {
+    setBusy(true);
     try {
-      await adminFetch("/api/admin/agent-control", {
+      const res = await adminFetch("/api/admin/set-admin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(args),
+        body: JSON.stringify({ id, is_admin }),
       });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ kind: "error", title: "Request failed", message: j?.error?.message ?? "Failed" });
+        return;
+      }
+      toast({ kind: "success", title: is_admin ? "Promoted" : "Demoted", message: "User role updated." });
       await load();
-    } catch (e: any) {
-      alert(e?.message ?? "Failed");
     } finally {
-      setBusyAgentId(null);
+      setBusy(false);
+    }
+  }
+
+  async function deleteUser(id: string) {
+    const ok = confirm("Delete user? This cannot be undone.");
+    if (!ok) return;
+    setBusy(true);
+    try {
+      const res = await adminFetch("/api/admin/delete-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ kind: "error", title: "Request failed", message: j?.error?.message ?? "Failed" });
+        return;
+      }
+      toast({ kind: "success", title: "Deleted", message: "User deleted." });
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function adjustBalance() {
+    const agentId = prompt("Agent ID");
+    if (!agentId) return;
+    const v = prompt("New balance (cents)");
+    if (!v) return;
+    const balance_cents = Number(v);
+    if (Number.isNaN(balance_cents)) {
+      toast({ kind: "error", title: "Invalid input", message: "Please enter a valid number." });
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const res = await adminFetch("/api/admin/adjust-balance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId, balance_cents }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ kind: "error", title: "Request failed", message: j?.error?.message ?? "Failed" });
+        return;
+      }
+      toast({ kind: "success", title: "Done", message: "Operation completed." });
+    } finally {
+      setBusy(false);
     }
   }
 
   async function revokeKey() {
-    const key_hash = prompt("Enter key_hash to revoke");
+    const key_hash = prompt("Paste key_hash to revoke");
     if (!key_hash) return;
+
+    setBusy(true);
     try {
-      await adminFetch("/api/admin/revoke-key", {
+      const res = await adminFetch("/api/admin/revoke-key", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key_hash }),
       });
-      alert("Revoked.");
-    } catch (e: any) {
-      alert(e?.message ?? "Failed");
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ kind: "error", title: "Request failed", message: j?.error?.message ?? "Failed" });
+        return;
+      }
+      toast({ kind: "success", title: "Revoked", message: "Key revoked successfully." });
+    } finally {
+      setBusy(false);
     }
   }
 
-  async function setBalance(agentId: string) {
-    const v = prompt("New balance in cents (e.g. 200 = $2.00)");
-    if (!v) return;
-    const balance_cents = Number(v);
-    if (Number.isNaN(balance_cents)) return alert("Invalid number");
-    try {
-      await adminFetch("/api/admin/agent-control", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type: "set_balance", agentId, balance_cents }),
-      });
-      await load();
-    } catch (e: any) {
-      alert(e?.message ?? "Failed");
-    }
-  }
-
-  async function editPolicy(agent: any) {
-    const models = prompt("allowed_models (comma-separated)", (agent.allowed_models ?? []).join(",")) ?? "";
-    const circuit_breaker_n = Number(prompt("circuit_breaker_n", String(agent.circuit_breaker_n ?? 10)) ?? "10");
-    const velocity_window_seconds = Number(prompt("velocity_window_seconds", String(agent.velocity_window_seconds ?? 3600)) ?? "3600");
-    const velocity_cap_cents = Number(prompt("velocity_cap_cents", String(agent.velocity_cap_cents ?? 50)) ?? "50");
-
-    try {
-      await adminFetch("/api/admin/agent-control", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "edit_policy",
-          agentId: agent.id,
-          allowed_models: models.split(",").map((s: string) => s.trim()).filter(Boolean),
-          circuit_breaker_n,
-          velocity_window_seconds,
-          velocity_cap_cents,
-        }),
-      });
-      await load();
-    } catch (e: any) {
-      alert(e?.message ?? "Failed");
-    }
-  }
-
-  if (!isAdmin) {
-    return (
-      <Layout userEmail={email} isAdmin={false}>
-        <div className="ui-card p-6">
-          <h1 className="text-2xl font-semibold tracking-tight text-white">Admin</h1>
-          <p className="mt-2 text-sm text-zinc-400">You are not an admin.</p>
-          <button className="mt-5 ui-btn ui-btn-primary" onClick={() => router.push("/app")}>
-            Back to App
-          </button>
-        </div>
-      </Layout>
-    );
-  }
+  const email = profile?.email ?? session?.user?.email ?? "";
+  const isAdmin = !!profile?.is_admin;
 
   return (
-    <Layout userEmail={email} isAdmin={true}>
+    <Layout userEmail={email} isAdmin={isAdmin}>
       <div className="grid gap-6">
         <div className="ui-card p-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight text-white">Admin Control Panel</h1>
-              <p className="mt-1 text-sm text-zinc-400">Users, agents, and emergency controls.</p>
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <button className="ui-btn" onClick={() => load()}>
-                Refresh
-              </button>
-              <button className="ui-btn" onClick={revokeKey}>
-                Revoke key (by key_hash)
-              </button>
-            </div>
+          <h1 className="text-2xl font-semibold tracking-tight text-white">Admin</h1>
+          <p className="mt-1 text-sm text-zinc-400">Manage workspace users and emergency controls.</p>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button className="ui-btn ui-btn-primary" onClick={adjustBalance} disabled={busy}>
+              Adjust agent balance
+            </button>
+            <button className="ui-btn" onClick={revokeKey} disabled={busy}>
+              Revoke key by hash
+            </button>
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          {/* USERS */}
-          <div className="ui-card p-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-white">Users</h2>
-              <span className="ui-pill">{users.length}</span>
-            </div>
-
-            {users.length === 0 ? (
-              <div className="mt-4 text-sm text-zinc-400">No users found.</div>
-            ) : (
-              <div className="mt-4 overflow-hidden rounded-2xl border border-white/10">
-                <table className="w-full">
-                  <thead>
-                    <tr>
-                      <th className="ui-th">Email</th>
-                      <th className="ui-th">Role</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map((u) => (
-                      <tr key={u.id} className="hover:bg-white/[0.03]">
-                        <td className="ui-td">
-                          <div className="font-medium text-zinc-100">{u.email}</div>
-                          <div className="mt-1 text-[11px] text-zinc-500">{u.id}</div>
-                        </td>
-                        <td className="ui-td">
-                          <span className="ui-pill">{u.is_admin ? "admin" : "user"}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* AGENTS */}
-          <div className="ui-card p-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-white">Agents</h2>
-              <span className="ui-pill">{agents.length}</span>
-            </div>
-
-            <div className="mt-4 space-y-3">
-              {agents.map((a) => {
-                const busy = busyAgentId === a.id;
-                const bal = ((Number(a.balance_cents ?? 0)) / 100).toFixed(2);
-                const models = Array.isArray(a.allowed_models) ? a.allowed_models.join(", ") : "";
-
-                return (
-                  <div key={a.id} className="ui-card ui-card-hover p-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <div className="text-sm font-semibold text-white">{a.name}</div>
-                          <span className="ui-pill">{a.status}</span>
-                        </div>
-                        <div className="mt-1 text-xs text-zinc-400">
-                          ${bal} • <span className="text-zinc-200">user</span> {String(a.user_id).slice(0, 6)}…
-                        </div>
-                        <div className="mt-1 text-xs text-zinc-500">models: {models || "—"}</div>
-                        <div className="mt-1 text-[11px] text-zinc-600">{a.id}</div>
-                      </div>
-
-                      <div className="flex flex-wrap justify-start gap-2 sm:justify-end">
-                        {a.status === "frozen" ? (
-                          <button
-                            disabled={busy}
-                            className="ui-btn"
-                            onClick={() => agentControl({ type: "unfreeze", agentId: a.id })}
-                          >
-                            Unfreeze
+        <div className="ui-card p-6">
+          <div className="text-sm font-semibold text-white">Users</div>
+          <div className="mt-4 overflow-x-auto rounded-2xl border border-white/10">
+            <table className="min-w-[720px] w-full text-sm">
+              <thead className="bg-white/[0.04] text-zinc-300">
+                <tr>
+                  <th className="px-4 py-3 text-left">Email</th>
+                  <th className="px-4 py-3 text-left">Created</th>
+                  <th className="px-4 py-3 text-left">Admin</th>
+                  <th className="px-4 py-3 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="text-zinc-200">
+                {users.map((u) => (
+                  <tr key={u.id} className="border-t border-white/10">
+                    <td className="px-4 py-3">{u.email ?? "—"}</td>
+                    <td className="px-4 py-3 text-zinc-400">{new Date(u.created_at).toLocaleString()}</td>
+                    <td className="px-4 py-3">{u.is_admin ? "Yes" : "No"}</td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex justify-end gap-2">
+                        {u.is_admin ? (
+                          <button className="ui-btn" onClick={() => setAdmin(u.id, false)} disabled={busy}>
+                            Demote
                           </button>
                         ) : (
-                          <button
-                            disabled={busy}
-                            className="ui-btn"
-                            onClick={() => agentControl({ type: "freeze", agentId: a.id })}
-                          >
-                            Freeze
+                          <button className="ui-btn" onClick={() => setAdmin(u.id, true)} disabled={busy}>
+                            Promote
                           </button>
                         )}
-
-                        <button disabled={busy} className="ui-btn" onClick={() => setBalance(a.id)}>
-                          Set balance
-                        </button>
-
-                        <button disabled={busy} className="ui-btn" onClick={() => editPolicy(a)}>
-                          Edit policy
-                        </button>
-
-                        <button
-                          disabled={busy}
-                          className="ui-btn border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/15"
-                          onClick={() => {
-                            const ok = confirm("Kill = set balance to 0 and freeze. Continue?");
-                            if (ok) agentControl({ type: "kill", agentId: a.id });
-                          }}
-                        >
-                          Kill
+                        <button className="ui-btn" onClick={() => deleteUser(u.id)} disabled={busy}>
+                          Delete
                         </button>
                       </div>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {agents.length === 0 ? <div className="text-sm text-zinc-400">No agents found.</div> : null}
-            </div>
+                    </td>
+                  </tr>
+                ))}
+                {!users.length ? (
+                  <tr className="border-t border-white/10">
+                    <td className="px-4 py-3 text-zinc-400" colSpan={4}>
+                      No users found.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
+
+      <Toast {...toastProps} />
     </Layout>
   );
 }

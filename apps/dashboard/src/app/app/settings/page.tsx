@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Layout from "@/components/Layout";
+import { Toast, useToast } from "@/components/Toast";
 import { useSession } from "../_auth";
 import { supabase } from "@/lib/supabaseClient";
 import { authedFetch } from "../_api";
@@ -13,6 +14,7 @@ export default function Settings() {
   const [openaiKey, setOpenaiKey] = useState("");
   const [hasKey, setHasKey] = useState(false);
   const [busy, setBusy] = useState(false);
+  const { toast, toastProps } = useToast();
 
   const userId = session?.user?.id;
 
@@ -41,7 +43,11 @@ export default function Settings() {
       });
 
       const j = await res.json().catch(() => ({}));
-      if (!res.ok) return alert(j?.error?.message ?? "Failed to save key");
+      if (!res.ok) {
+        toast({ kind: "error", title: "Save failed", message: j?.error?.message ?? "Failed to save key" });
+        return;
+      }
+      toast({ kind: "success", title: "Saved", message: "Provider key stored securely." });
 
       setOpenaiKey("");
       await load();
@@ -61,8 +67,11 @@ export default function Settings() {
         body: JSON.stringify({ key_hash: keyHash }),
       });
       const j = await res.json().catch(() => ({}));
-      if (!res.ok) return alert(j?.error?.message ?? "Failed to revoke");
-      alert("Revoked.");
+      if (!res.ok) {
+        toast({ kind: "error", title: "Revoke failed", message: j?.error?.message ?? "Failed to revoke" });
+        return;
+      }
+      toast({ kind: "success", title: "Revoked", message: "Key revoked successfully." });
     } finally {
       setBusy(false);
     }
@@ -112,23 +121,24 @@ export default function Settings() {
           </div>
 
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
-            <button className="ui-btn ui-btn-primary" onClick={saveKey} disabled={busy}>
-              <Save className="h-4 w-4" />
-              Save key
+            <button className="ui-btn ui-btn-primary" onClick={saveKey} disabled={busy || !openaiKey.trim()}>
+              <Save className="h-4 w-4" /> Save
             </button>
-
-            <button className="ui-btn" onClick={revokeKey} disabled={busy}>
-              <Trash2 className="h-4 w-4" />
-              Revoke by key_hash
-            </button>
-
-            <div className="sm:ml-auto text-xs text-zinc-500">
+            <span className="text-xs text-zinc-400">
               Status:{" "}
-              {hasKey ? <span className="text-zinc-200">configured</span> : <span>not set</span>}
-            </div>
+              <span className="text-white">{hasKey ? "Key stored" : "No key found"}</span>
+            </span>
+
+            {isAdmin ? (
+              <button className="ui-btn sm:ml-auto" onClick={revokeKey} disabled={busy}>
+                <Trash2 className="h-4 w-4" /> Revoke by key_hash
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
+
+      <Toast {...toastProps} />
     </Layout>
   );
 }

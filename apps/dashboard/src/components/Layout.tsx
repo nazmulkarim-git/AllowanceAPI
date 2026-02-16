@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ReactNode, useMemo } from "react";
+import { usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
 import { motion, useReducedMotion } from "framer-motion";
 import { LogOut, LayoutGrid, Settings, Shield, Sparkles } from "lucide-react";
@@ -25,6 +26,7 @@ export default function Layout({
   isAdmin?: boolean;
 }) {
   const reduce = useReducedMotion();
+  const pathname = usePathname();
 
   const headerMotion = useMemo(
     () =>
@@ -75,7 +77,6 @@ export default function Layout({
                   {userEmail}
                 </span>
               ) : null}
-              ...
             </div>
             <button
               className="ui-btn"
@@ -101,7 +102,8 @@ export default function Layout({
                 href={href}
                 className={cx(
                   "group flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-zinc-200",
-                  "hover:bg-white/[0.06] hover:text-white"
+                  "hover:bg-white/[0.06] hover:text-white",
+                  pathname === href && "bg-white/[0.06] text-white border border-white/10"
                 )}
               >
                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] transition group-hover:border-white/20">
@@ -116,7 +118,8 @@ export default function Layout({
                 href="/app/admin"
                 className={cx(
                   "group mt-2 flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-zinc-200",
-                  "hover:bg-white/[0.06] hover:text-white"
+                  "hover:bg-white/[0.06] hover:text-white",
+                  pathname === "/app/admin" && "bg-white/[0.06] text-white border border-white/10"
                 )}
               >
                 <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] transition group-hover:border-white/20">

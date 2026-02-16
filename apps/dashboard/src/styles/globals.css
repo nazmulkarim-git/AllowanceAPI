@@ -14,6 +14,14 @@ body {
 
 body {
   background: #000;
+  color: rgb(244 244 245);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+select,
+option {
+  line-height: 1.35;
 }
 
 /* Selection + focus */
@@ -72,15 +80,7 @@ body {
   }
 
   .ui-table {
-    @apply w-full border-separate border-spacing-0 overflow-hidden rounded-2xl border border-white/10;
-  }
-
-  .ui-th {
-    @apply bg-white/[0.04] px-4 py-3 text-left text-xs font-semibold tracking-wide text-zinc-300;
-  }
-
-  .ui-td {
-    @apply border-t border-white/10 px-4 py-3 text-sm text-zinc-100;
+    @apply w-full border-collapse text-sm;
   }
 
   .ui-empty {
@@ -88,10 +88,10 @@ body {
   }
 
   .ui-empty-title {
-    @apply text-base font-semibold text-zinc-100;
+    @apply text-base font-semibold text-white;
   }
 
   .ui-empty-subtitle {
-    @apply text-sm text-zinc-400;
+    @apply text-sm text-zinc-400 max-w-md;
   }
 }

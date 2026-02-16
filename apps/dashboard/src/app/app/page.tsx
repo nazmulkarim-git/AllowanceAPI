@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Layout from "@/components/Layout";
+import { Toast, useToast } from "@/components/Toast";
 import { supabase } from "@/lib/supabaseClient";
 import { useSession } from "./_auth";
 import { motion, useReducedMotion } from "framer-motion";
@@ -30,6 +31,7 @@ export default function AppHome() {
 
   const userId = session?.user?.id;
   const reduce = useReducedMotion();
+  const { toast, toastProps } = useToast();
 
   async function load() {
     if (!userId) return;
@@ -113,7 +115,6 @@ export default function AppHome() {
     };
   }, [loading, agents]);
 
-
   async function createAgent() {
     if (!name.trim() || !userId) return;
     setBusy(true);
@@ -123,7 +124,10 @@ export default function AppHome() {
         .insert({ name, user_id: userId })
         .select("id")
         .single();
-      if (error) return alert(error.message);
+      if (error) {
+        toast({ kind: "error", title: "Could not create agent", message: error.message });
+        return;
+      }
 
       await supabase.from("agent_policies").insert({
         agent_id: a.id,
@@ -136,6 +140,7 @@ export default function AppHome() {
 
       setName("");
       await load();
+      toast({ kind: "success", title: "Agent created", message: "Your agent is ready to configure." });
     } finally {
       setBusy(false);
     }
@@ -235,52 +240,55 @@ export default function AppHome() {
         ) : (
           <motion.div {...container} className="grid gap-3">
             {agents.map((a) => {
-              const bal = ((a.balance_cents ?? 0) / 100).toFixed(2);
-              const velCap = ((a.velocity_cap_cents ?? 0) / 100).toFixed(2);
               const configuredBal = a.balance_cents ?? 0;
               const live = liveByAgent[a.id];
-              const liveBal = live?.balance_cents;
-
-              const cap = a.velocity_cap_cents ?? 0;
-              const win = a.velocity_window_seconds ?? 3600;
-              const models = Array.isArray(a.allowed_models) ? a.allowed_models.join(", ") : "—";
+              const liveBal = live?.balance_cents ?? null;
+              const velNow = live?.velocity_cents ?? null;
 
               return (
                 <motion.div key={a.id} {...item}>
                   <Link href={`/app/agents/${a.id}`} className="ui-card ui-card-hover block p-5">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                          <div className="text-sm font-semibold text-white">{a.name}</div>
-                          <span className="ui-pill">{a.status}</span>
+                          <div className="text-sm font-semibold text-white truncate">{a.name}</div>
+                          {a.status ? <span className="ui-pill">{a.status}</span> : null}
+                          {live?.frozen ? <span className="ui-pill">frozen</span> : null}
                         </div>
-                        <div className="mt-1 text-xs text-zinc-400 truncate">
-                          models: <span className="text-zinc-300">{models}</span>
+                        <div className="mt-1 text-xs text-zinc-400 font-mono break-all">{a.id}</div>
+                      </div>
+                      <div className="ui-pill">
+                        Configure <ArrowRight className="h-4 w-4" />
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                        <div className="text-[11px] text-zinc-400">Balance</div>
+                        <div className="mt-1 text-sm font-semibold text-white tabular-nums">
+                          {money(configuredBal)}
+                          {liveBal !== null ? (
+                            <span className="ml-2 text-xs text-zinc-400">
+                              live {money(liveBal)}
+                            </span>
+                          ) : null}
                         </div>
                       </div>
-
-                      <div className="flex items-end justify-between gap-6 sm:justify-end">
-                        <div className="text-right">
-                          <div className="text-xs text-zinc-400">Balance</div>
-                          <div className="text-sm font-semibold text-white">
-                            {money(configuredBal)}
-                          </div>
-                          <div className="mt-0.5 text-[11px] text-zinc-400">
-                            Live: <span className="text-zinc-200">{liveBal != null ? money(liveBal) : "—"}</span>
-                          </div>
+                      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                        <div className="text-[11px] text-zinc-400">Velocity</div>
+                        <div className="mt-1 text-sm font-semibold text-white tabular-nums">
+                          {a.velocity_cap_cents != null ? money(a.velocity_cap_cents) : "—"}{" "}
+                          <span className="text-xs text-zinc-400">/ {a.velocity_window_seconds != null ? windowLabel(a.velocity_window_seconds) : "—"}</span>
+                          {velNow !== null ? (
+                            <span className="ml-2 text-xs text-zinc-400">now {money(velNow)}</span>
+                          ) : null}
                         </div>
-
-                        <div className="text-right">
-                          <div className="text-xs text-zinc-400">Velocity</div>
-                          <div className="text-sm font-semibold text-white">
-                            {money(cap)} / {windowLabel(win)}
-                          </div>
-                          <div className="mt-0.5 text-[11px] text-zinc-400">
-                            Now: <span className="text-zinc-200">{live ? money(live.velocity_cents) : "—"}</span>
-                          </div>
+                      </div>
+                      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                        <div className="text-[11px] text-zinc-400">Breaker</div>
+                        <div className="mt-1 text-sm font-semibold text-white tabular-nums">
+                          {a.circuit_breaker_n ?? "—"}
                         </div>
-
-                        <ArrowRight className="h-4 w-4 text-zinc-500" />
                       </div>
                     </div>
                   </Link>
@@ -290,6 +298,8 @@ export default function AppHome() {
           </motion.div>
         )}
       </div>
+
+      <Toast {...toastProps} />
     </Layout>
   );
 }
