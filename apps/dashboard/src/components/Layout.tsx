@@ -69,7 +69,14 @@ export default function Layout({
           </Link>
 
           <div className="flex items-center gap-2">
-            {userEmail ? <span className="ui-pill">{userEmail}</span> : null}
+            <div className="flex items-center gap-2 min-w-0">
+              {userEmail ? (
+                <span className="ui-pill max-w-[220px] truncate" title={userEmail}>
+                  {userEmail}
+                </span>
+              ) : null}
+              ...
+            </div>
             <button
               className="ui-btn"
               onClick={async () => {

@@ -180,7 +180,11 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
                 {agent?.status ? <span className="ui-pill">{agent.status}</span> : null}
               </div>
               <p className="mt-1 text-sm text-zinc-400">Configure allowance policies and keys.</p>
-              {agent?.id ? <div className="mt-2 text-[11px] text-zinc-600">{agent.id}</div> : null}
+              {agent?.id ? (
+                <div className="mt-2 font-mono text-[11px] text-zinc-600 break-all">
+                  {agent.id}
+                </div>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -229,7 +233,7 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
           {/* Policy */}
           <div className="ui-card p-6">
             <div className="flex items-center justify-between">
