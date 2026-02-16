@@ -49,77 +49,124 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
   async function load() {
     if (!userId) return;
 
-    const p = await supabase.from("profiles").select("email,is_admin").eq("id", userId).single();
-    setProfile(p.data as any);
+    const [{ data: prof }, { data: ag }, polRes, liveRes, keyRes, auditRes] = await Promise.all([
+      supabase.from("profiles").select("email,is_admin").eq("id", userId).maybeSingle(),
+      supabase.from("agents").select("id,name,status").eq("id", params.id).maybeSingle(),
+      authedFetch(`/api/policy?agent_id=${encodeURIComponent(params.id)}`),
+      authedFetch(`/api/live?agent_id=${encodeURIComponent(params.id)}`),
+      authedFetch(`/api/allowance-key?agent_id=${encodeURIComponent(params.id)}`),
+      authedFetch(`/api/audit?agent_id=${encodeURIComponent(params.id)}`),
+    ]);
 
-    const a = await supabase.from("agents").select("id,name,status").eq("id", params.id).single();
-    if (a.error) return;
-    setAgent(a.data as any);
+    setProfile(prof ?? null);
+    setAgent((ag as any) ?? null);
 
-    const pol = await supabase.from("agent_policies").select("*").eq("agent_id", params.id).single();
-    if (!pol.error) {
-      setPolicy(pol.data as any);
-      setSelectedModels(((pol.data as any).allowed_models ?? []) as string[]);
+    const polJson = await polRes.json().catch(() => null);
+    if (polRes.ok && polJson?.policy) {
+      setPolicy(polJson.policy);
+      setSelectedModels(polJson.policy.allowed_models ?? []);
     }
 
-    const { data: keys } = await supabase
-      .from("allowance_keys")
-      .select("prefix,revoked_at")
-      .eq("agent_id", params.id)
-      .order("created_at", { ascending: false })
-      .limit(1);
+    const liveJson = await liveRes.json().catch(() => null);
+    if (liveRes.ok && liveJson?.live) setLive(liveJson.live);
 
-    if (!keys?.length || keys[0].revoked_at) setAllowanceKey(null);
-    if (keys?.length) {
-      setLastKeyPrefix(keys[0].prefix ?? null);
-      setLastKeyRevokedAt(keys[0].revoked_at ?? null);
-    } else {
-      setLastKeyPrefix(null);
-      setLastKeyRevokedAt(null);
+    const keyJson = await keyRes.json().catch(() => null);
+    if (keyRes.ok && keyJson?.key) {
+      // minted key returned once
+      setAllowanceKey(keyJson.key ?? null);
+      setLastKeyPrefix(keyJson.prefix ?? null);
+      setLastKeyRevokedAt(keyJson.revoked_at ?? null);
+    } else if (keyRes.ok && keyJson?.prefix) {
+      // key exists but hidden
+      setAllowanceKey(null);
+      setLastKeyPrefix(keyJson.prefix ?? null);
+      setLastKeyRevokedAt(keyJson.revoked_at ?? null);
     }
 
-    const sum = await supabase.from("agent_spend_summary").select("*").eq("agent_id", params.id).single();
-    if (!sum.error) setAuditSummary(sum.data);
+    const auditJson = await auditRes.json().catch(() => null);
+    if (auditRes.ok) {
+      setAuditSummary(auditJson?.summary ?? null);
+      setAuditByModel(auditJson?.by_model ?? []);
+    }
+  }
 
-    const byModel = await supabase
-      .from("agent_spend_by_model")
-      .select("*")
-      .eq("agent_id", params.id)
-      .order("cost_cents", { ascending: false });
+  async function savePolicy() {
+    if (!policy) return;
+    const body = {
+      agent_id: params.id,
+      balance_cents: Number(policy.balance_cents ?? 0),
+      allowed_models: selectedModels,
+      velocity_window_seconds: Number(policy.velocity_window_seconds ?? 10),
+      velocity_cap_cents: Number(policy.velocity_cap_cents ?? 20),
+      circuit_breaker_n: Number(policy.circuit_breaker_n ?? 6),
+      webhook_url: policy.webhook_url ?? null,
+      webhook_secret: policy.webhook_secret ?? null,
+    };
 
-    if (!byModel.error) setAuditByModel(byModel.data ?? []);
+    const res = await authedFetch("/api/policy", { method: "POST", body: JSON.stringify(body) });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) {
+      toast({ kind: "error", title: "Save failed", message: json?.error ?? "Could not save policy." });
+      return;
+    }
+    toast({ kind: "success", title: "Saved", message: "Policy updated." });
+    await load();
+  }
+
+  async function mintKey() {
+    const res = await authedFetch("/api/allowance-key", {
+      method: "POST",
+      body: JSON.stringify({ agent_id: params.id }),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) {
+      toast({ kind: "error", title: "Mint failed", message: json?.error ?? "Could not mint key." });
+      return;
+    }
+    setAllowanceKey(json?.key ?? null);
+    setLastKeyPrefix(json?.prefix ?? null);
+    setLastKeyRevokedAt(null);
+    toast({ kind: "success", title: "Minted", message: "New allowance key created." });
+  }
+
+  async function revokeKey() {
+    const res = await authedFetch("/api/allowance-key", {
+      method: "DELETE",
+      body: JSON.stringify({ agent_id: params.id }),
+    });
+    const json = await res.json().catch(() => null);
+    if (!res.ok) {
+      toast({ kind: "error", title: "Revoke failed", message: json?.error ?? "Could not revoke key." });
+      return;
+    }
+    setAllowanceKey(null);
+    setLastKeyRevokedAt(new Date().toISOString());
+    toast({ kind: "success", title: "Revoked", message: "Allowance key revoked." });
+    await load();
   }
 
   useEffect(() => {
-    if (!loading) load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, userId]);
-
-  useEffect(() => {
     if (loading || !userId) return;
+    load().catch(() => null);
+
     let cancelled = false;
     let t: any = null;
-
     const tick = async () => {
+      if (cancelled) return;
       try {
-        const res = await authedFetch(`/api/live-balance?agentId=${encodeURIComponent(params.id)}`);
+        const res = await authedFetch(`/api/live?agent_id=${encodeURIComponent(params.id)}`);
         const json = await res.json().catch(() => null);
-        if (!cancelled && res.ok && json) {
-          setLive({
-            balance_cents: Number(json.balance_cents ?? 0),
-            velocity_cents: Number(json.velocity_cents ?? 0),
-            frozen: !!json.frozen,
-          });
-        }
+        if (res.ok && json?.live) setLive(json.live);
       } catch {}
-      if (!cancelled) t = setTimeout(tick, 650);
+      if (!cancelled) t = setTimeout(tick, 4000);
     };
+    t = setTimeout(tick, 4000);
 
-    tick();
     return () => {
       cancelled = true;
       if (t) clearTimeout(t);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, userId, params.id]);
 
   useEffect(() => {
@@ -133,122 +180,53 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
     })();
   }, [loading, userId]);
 
-  async function mintKey() {
-    const res = await authedFetch("/api/mint-key", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agentId: params.id }),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      toast({ kind: "error", title: "Mint failed", message: json?.error?.message ?? "Failed" });
-      return;
-    }
-    setAllowanceKey(json.key);
-    toast({ kind: "success", title: "Key minted", message: "Copy the key now. It will only be shown once." });
-    await load();
-  }
+  const email = profile?.email ?? "";
+  const isAdmin = profile?.is_admin ?? false;
 
-  async function savePolicy() {
-    if (!policy) return;
+  const balanceLabel = useMemo(() => {
+    const cents = policy?.balance_cents ?? live?.balance_cents ?? 0;
+    return `$${(Number(cents) / 100).toFixed(2)}`;
+  }, [policy?.balance_cents, live?.balance_cents]);
 
-    const res = await authedFetch("/api/save-policy", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        agentId: params.id,
-        policy: { ...policy, allowed_models: selectedModels },
-      }),
-    });
-
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      toast({ kind: "error", title: "Save failed", message: json?.error?.message ?? "Failed" });
-      return;
-    }
-    toast({ kind: "success", title: "Saved", message: "Allowance policy updated." });
-    await load();
-  }
-
-  async function killSwitch() {
-    const res = await authedFetch("/api/kill-switch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agentId: params.id }),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      toast({ kind: "error", title: "Kill switch failed", message: json?.error?.message ?? "Failed" });
-      return;
-    }
-    setPolicy((prev) => (prev ? { ...prev, balance_cents: 0 } : prev));
-    toast({ kind: "success", title: "Kill switch enabled", message: "Agent frozen and balance set to $0." });
-    await load();
-  }
-
-  async function setFreeze(freeze: boolean) {
-    const res = await authedFetch("/api/freeze-toggle", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agentId: params.id, freeze }),
-    });
-    if (!res.ok) {
-      toast({ kind: "error", title: "Update failed", message: "Could not change frozen state." });
-      return;
-    }
-    toast({ kind: "success", title: freeze ? "Frozen" : "Unfrozen", message: "Agent status updated." });
-    await load();
-  }
-
-  const email = profile?.email ?? session?.user?.email ?? "";
-  const isAdmin = !!profile?.is_admin;
-
-  const liveSummary = useMemo(() => {
-    if (!live) return null;
-    const parts = [
-      `Live remaining: $${(live.balance_cents / 100).toFixed(2)}`,
-      `Velocity: $${(live.velocity_cents / 100).toFixed(2)}`,
-    ];
-    if (live.frozen) parts.push("Frozen");
-    return parts.join(" • ");
-  }, [live]);
+  const velocityLabel = useMemo(() => {
+    const cents = live?.velocity_cents ?? 0;
+    return `$${(Number(cents) / 100).toFixed(2)}`;
+  }, [live?.velocity_cents]);
 
   return (
     <Layout userEmail={email} isAdmin={isAdmin}>
       <div className="grid gap-6">
-        <div className="ui-card p-6">
+        <div className="ui-card p-6 w-full">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-2xl font-semibold tracking-tight text-white">
-                  {agent?.name ?? "Agent"}
-                </h1>
+                <h1 className="text-2xl font-semibold tracking-tight text-white">{agent?.name ?? "Agent"}</h1>
                 {agent?.status ? <span className="ui-pill">{agent.status}</span> : null}
-                {live?.frozen ? <span className="ui-pill">frozen</span> : null}
+                {live?.frozen ? <span className="ui-pill">Frozen</span> : null}
               </div>
-              <p className="mt-1 text-sm text-zinc-400">Configure allowance policies and keys.</p>
-              {agent?.id ? (
-                <div className="mt-2 font-mono text-[11px] text-zinc-600 break-all">{agent.id}</div>
-              ) : null}
-              {liveSummary ? <div className="mt-2 text-xs text-zinc-400">{liveSummary}</div> : null}
+              <div className="mt-2 text-sm text-zinc-400">
+                Balance: <span className="text-zinc-200">{balanceLabel}</span> • Velocity:{" "}
+                <span className="text-zinc-200">{velocityLabel}</span> / {windowLabel(policy?.velocity_window_seconds ?? 10)}
+              </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              {agent?.status === "frozen" ? (
-                <button className="ui-btn" onClick={() => setFreeze(false)}>
-                  Unfreeze
-                </button>
-              ) : (
-                <button className="ui-btn" onClick={() => setFreeze(true)}>
-                  Freeze
-                </button>
-              )}
-
+            <div className="flex items-center gap-2">
+              <button
+                className="ui-btn"
+                onClick={async () => {
+                  await authedFetch("/api/freeze", { method: "POST", body: JSON.stringify({ agent_id: params.id }) });
+                  toast({ kind: "success", title: "Frozen", message: "Agent frozen." });
+                  await load();
+                }}
+              >
+                Freeze
+              </button>
               <button
                 className="ui-btn ui-btn-danger"
-                onClick={() => {
-                  const ok = confirm("Kill switch will freeze the agent and set balance to $0. Continue?");
-                  if (ok) killSwitch();
+                onClick={async () => {
+                  await authedFetch("/api/kill", { method: "POST", body: JSON.stringify({ agent_id: params.id }) });
+                  toast({ kind: "success", title: "Kill switch", message: "Kill switch activated." });
+                  await load();
                 }}
               >
                 Kill switch
@@ -258,54 +236,78 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
         </div>
 
         {/* Keep a strict two-column grid so right-side cards don't drift/shift on wide screens. */}
-        <div className="grid gap-6 lg:grid-cols-2">
-          <div className="ui-card p-6">
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr),minmax(0,1fr)] lg:items-start">
+          <div className="ui-card p-6 min-w-0">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-white">Allowance policy</h2>
               <span className="ui-pill">live</span>
             </div>
 
-            {live && policy ? (
-              <div className="mt-2 text-xs text-zinc-400">
-                Configured: <span className="text-white">${(policy.balance_cents / 100).toFixed(2)}</span> • Live
-                remaining: <span className="text-white">${(live.balance_cents / 100).toFixed(2)}</span> • Spent:{" "}
-                <span className="text-white">
-                  ${((policy.balance_cents - live.balance_cents) / 100).toFixed(2)}
-                </span>
-                <span className="mx-2 text-zinc-600">|</span>
-                Velocity now: <span className="text-white">${(live.velocity_cents / 100).toFixed(2)}</span> /{" "}
-                <span className="text-white">${(policy.velocity_cap_cents / 100).toFixed(2)}</span> per{" "}
-                <span className="text-white">{windowLabel(policy.velocity_window_seconds)}</span>
-              </div>
-            ) : null}
-
-            {!policy ? (
-              <div className="mt-4 text-sm text-zinc-400">No policy found.</div>
-            ) : (
+            {policy ? (
               <div className="mt-4 grid gap-4">
-                <div className="grid gap-2">
-                  <label className="ui-label">
-                    Balance (cents) <span className="text-zinc-500">(${(policy.balance_cents / 100).toFixed(2)})</span>
-                  </label>
-                  <input
-                    className="ui-input"
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={String(policy.balance_cents ?? 0)}
-                    onChange={(e) =>
-                      setPolicy((prev) =>
-                        prev ? { ...prev, balance_cents: Number(e.target.value || 0) } : prev
-                      )
-                    }
-                  />
-                  <div className="text-xs text-zinc-500">Displayed as dollars in the app. Stored as cents.</div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid gap-2">
+                    <label className="ui-label">Balance (cents)</label>
+                    <input
+                      className="ui-input"
+                      inputMode="numeric"
+                      value={policy.balance_cents ?? 0}
+                      onChange={(e) =>
+                        setPolicy((prev) =>
+                          prev ? { ...prev, balance_cents: Number(e.target.value || 0) } : prev
+                        )
+                      }
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <label className="ui-label">Circuit breaker threshold (N)</label>
+                    <input
+                      className="ui-input"
+                      inputMode="numeric"
+                      value={policy.circuit_breaker_n ?? 6}
+                      onChange={(e) =>
+                        setPolicy((prev) =>
+                          prev ? { ...prev, circuit_breaker_n: Number(e.target.value || 0) } : prev
+                        )
+                      }
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid gap-2">
+                    <label className="ui-label">Velocity window (seconds)</label>
+                    <input
+                      className="ui-input"
+                      inputMode="numeric"
+                      value={policy.velocity_window_seconds ?? 10}
+                      onChange={(e) =>
+                        setPolicy((prev) =>
+                          prev ? { ...prev, velocity_window_seconds: Number(e.target.value || 0) } : prev
+                        )
+                      }
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <label className="ui-label">Velocity cap (cents)</label>
+                    <input
+                      className="ui-input"
+                      inputMode="numeric"
+                      value={policy.velocity_cap_cents ?? 20}
+                      onChange={(e) =>
+                        setPolicy((prev) =>
+                          prev ? { ...prev, velocity_cap_cents: Number(e.target.value || 0) } : prev
+                        )
+                      }
+                    />
+                  </div>
                 </div>
 
                 <div className="grid gap-2">
                   <label className="ui-label">Allowed models</label>
                   <select
-                    className="ui-input h-40"
+                    className="ui-input"
                     multiple
                     value={selectedModels}
                     onChange={(e) => {
@@ -319,73 +321,9 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
                       </option>
                     ))}
                   </select>
-                  <div className="text-xs text-zinc-500">Tip: Select none (empty) to allow all models.</div>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    <button className="ui-btn" type="button" onClick={() => setSelectedModels([])}>
-                      Allow all
-                    </button>
-                    <button
-                      className="ui-btn"
-                      type="button"
-                      onClick={() => setSelectedModels(availableModels)}
-                      disabled={!availableModels.length}
-                    >
-                      Select all
-                    </button>
+                  <div className="text-xs text-zinc-500">
+                    Tip: Select none (empty) to allow all models.
                   </div>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="grid gap-2">
-                    <label className="ui-label">Velocity window (seconds)</label>
-                    <input
-                      className="ui-input"
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={String(policy.velocity_window_seconds ?? 0)}
-                      onChange={(e) =>
-                        setPolicy((prev) =>
-                          prev ? { ...prev, velocity_window_seconds: Number(e.target.value || 0) } : prev
-                        )
-                      }
-                    />
-                    <div className="text-xs text-zinc-500">
-                      Shown as {windowLabel(policy.velocity_window_seconds)} in the UI.
-                    </div>
-                  </div>
-
-                  <div className="grid gap-2">
-                    <label className="ui-label">Velocity cap (cents)</label>
-                    <input
-                      className="ui-input"
-                      type="number"
-                      min={0}
-                      step={1}
-                      value={String(policy.velocity_cap_cents ?? 0)}
-                      onChange={(e) =>
-                        setPolicy((prev) =>
-                          prev ? { ...prev, velocity_cap_cents: Number(e.target.value || 0) } : prev
-                        )
-                      }
-                    />
-                  </div>
-                </div>
-
-                <div className="grid gap-2">
-                  <label className="ui-label">Circuit breaker threshold (N)</label>
-                  <input
-                    className="ui-input"
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={String(policy.circuit_breaker_n ?? 0)}
-                    onChange={(e) =>
-                      setPolicy((prev) =>
-                        prev ? { ...prev, circuit_breaker_n: Number(e.target.value || 0) } : prev
-                      )
-                    }
-                  />
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -418,14 +356,16 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
                   <button className="ui-btn" onClick={load}>
                     Reload
                   </button>
-                  <div className="sm:ml-auto text-xs text-zinc-500">Tip: keep velocity low for early testing, then ramp.</div>
+                  <div className="sm:ml-auto text-xs text-zinc-500">
+                    Tip: keep velocity low for early testing, then ramp.
+                  </div>
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
 
-          <div className="grid gap-6">
-            <div className="ui-card p-6">
+          <div className="grid gap-6 min-w-0">
+            <div className="ui-card p-6 w-full">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-white">Allowance key</h2>
                 <span className="ui-pill">auth</span>
@@ -457,111 +397,96 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
                     <div className="mt-1 text-sm text-zinc-300">
                       {lastKeyPrefix ? (
                         <>
-                          Prefix: <span className="font-mono text-zinc-100">{lastKeyPrefix}</span>
+                          Prefix: <span className="font-mono text-zinc-200">{lastKeyPrefix}</span>
                         </>
                       ) : (
-                        "No key minted yet."
+                        "—"
                       )}
                     </div>
                     {lastKeyRevokedAt ? (
-                      <div className="mt-1 text-xs text-zinc-500">
-                        Revoked: {new Date(lastKeyRevokedAt).toLocaleString()}
-                      </div>
+                      <div className="mt-2 text-[11px] text-zinc-500">Last revoked: {new Date(lastKeyRevokedAt).toLocaleString()}</div>
                     ) : null}
-                    <div className="mt-2 text-[11px] text-zinc-500">
-                      For safety, the full key is only shown once during mint.
-                    </div>
                   </div>
                 )}
 
-                <button className="ui-btn ui-btn-primary w-full" onClick={mintKey}>
-                  Mint new key
-                </button>
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <button className="ui-btn ui-btn-primary" onClick={mintKey}>
+                    Mint new key
+                  </button>
+                  <button className="ui-btn ui-btn-danger" onClick={revokeKey}>
+                    Revoke key
+                  </button>
 
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <div className="text-xs text-zinc-400">Example header</div>
-                  <div className="mt-2 font-mono text-xs text-zinc-200 break-all">
-                    Authorization: Bearer &lt;allowance_key&gt;
+                  <div className="sm:ml-auto text-xs text-zinc-500">
+                    Example header: <span className="font-mono">Authorization: Bearer &lt;allowance_key&gt;</span>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="ui-card p-6">
+            <div className="ui-card p-6 w-full">
               <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-sm font-semibold text-white">Audit</h2>
-                  <p className="mt-1 text-sm text-zinc-400">Spend + token usage for this agent.</p>
-                </div>
+                <h2 className="text-sm font-semibold text-white">Audit</h2>
+                <span className="ui-pill">spend + token usage</span>
               </div>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
                   <div className="text-xs text-zinc-400">Total spend</div>
-                  <div className="mt-1 text-lg font-semibold text-white break-all tabular-nums leading-tight">
-                    ${((auditSummary?.cost_cents ?? 0) / 100).toFixed(2)}
-                  </div>
+                  <div className="mt-1 text-sm text-white">${((auditSummary?.spend_cents ?? 0) / 100).toFixed(2)}</div>
                 </div>
-
-                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
                   <div className="text-xs text-zinc-400">Requests</div>
-                  <div className="mt-1 text-lg font-semibold text-white break-all tabular-nums leading-tight">
-                    {auditSummary?.request_count ?? 0}
-                  </div>
+                  <div className="mt-1 text-sm text-white">{auditSummary?.requests ?? 0}</div>
                 </div>
-
-                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
                   <div className="text-xs text-zinc-400">Prompt tokens</div>
-                  <div className="mt-1 text-lg font-semibold text-white break-all tabular-nums leading-tight">
-                    {auditSummary?.prompt_tokens ?? 0}
-                  </div>
+                  <div className="mt-1 text-sm text-white">{auditSummary?.prompt_tokens ?? 0}</div>
                 </div>
-
-                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
                   <div className="text-xs text-zinc-400">Completion tokens</div>
-                  <div className="mt-1 text-lg font-semibold text-white break-all tabular-nums leading-tight">
-                    {auditSummary?.completion_tokens ?? 0}
-                  </div>
+                  <div className="mt-1 text-sm text-white">{auditSummary?.completion_tokens ?? 0}</div>
                 </div>
               </div>
 
-              <div className="mt-6 overflow-x-auto rounded-2xl border border-white/10">
-                <table className="min-w-[720px] w-full text-sm">
-                  <thead className="bg-white/[0.04] text-zinc-300">
+              <div className="mt-4 overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="text-zinc-400">
                     <tr>
-                      <th className="px-4 py-3 text-left">Model</th>
-                      <th className="px-4 py-3 text-right">Requests</th>
-                      <th className="px-4 py-3 text-right">Prompt</th>
-                      <th className="px-4 py-3 text-right">Completion</th>
-                      <th className="px-4 py-3 text-right">Spend</th>
+                      <th className="py-2 pr-3 font-medium">Model</th>
+                      <th className="py-2 pr-3 font-medium">Requests</th>
+                      <th className="py-2 pr-3 font-medium">Prompt</th>
+                      <th className="py-2 pr-3 font-medium">Completion</th>
+                      <th className="py-2 pr-3 font-medium">Spend</th>
                     </tr>
                   </thead>
                   <tbody className="text-zinc-200">
-                    {auditByModel.map((r) => (
-                      <tr key={r.model ?? "unknown"} className="border-t border-white/10">
-                        <td className="px-4 py-3">{r.model ?? "unknown"}</td>
-                        <td className="px-4 py-3 text-right">{r.request_count ?? 0}</td>
-                        <td className="px-4 py-3 text-right">{r.prompt_tokens ?? 0}</td>
-                        <td className="px-4 py-3 text-right">{r.completion_tokens ?? 0}</td>
-                        <td className="px-4 py-3 text-right">${((r.cost_cents ?? 0) / 100).toFixed(2)}</td>
-                      </tr>
-                    ))}
-                    {!auditByModel.length ? (
+                    {(auditByModel ?? []).length ? (
+                      auditByModel.map((row, i) => (
+                        <tr key={i} className="border-t border-white/10">
+                          <td className="py-2 pr-3 font-mono text-[11px]">{row.model}</td>
+                          <td className="py-2 pr-3">{row.requests}</td>
+                          <td className="py-2 pr-3">{row.prompt_tokens}</td>
+                          <td className="py-2 pr-3">{row.completion_tokens}</td>
+                          <td className="py-2 pr-3">${((row.spend_cents ?? 0) / 100).toFixed(2)}</td>
+                        </tr>
+                      ))
+                    ) : (
                       <tr className="border-t border-white/10">
-                        <td className="px-4 py-3 text-zinc-400" colSpan={5}>
+                        <td className="py-3 text-zinc-500" colSpan={5}>
                           No spend events yet.
                         </td>
                       </tr>
-                    ) : null}
+                    )}
                   </tbody>
                 </table>
               </div>
             </div>
+
+            <Toast {...toastProps} />
           </div>
         </div>
       </div>
-
-      <Toast {...toastProps} />
     </Layout>
   );
 }
