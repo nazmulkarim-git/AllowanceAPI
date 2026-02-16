@@ -12,7 +12,7 @@ body {
 }
 
 body {
-  background: #0b0f14;
+  background: #070a10;
   color: rgb(244 244 245);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -32,35 +32,40 @@ option {
   outline-offset: 2px;
 }
 
-/* Premium background helpers (used in RootLayout) */
+/* Premium background helpers */
 .bg-noise {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.25'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.22'/%3E%3C/svg%3E");
   background-size: 180px 180px;
 }
 
+.bg-grid {
+  background-image: linear-gradient(to right, rgba(255,255,255,0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255,255,255,0.06) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(circle at 50% 20%, black 25%, transparent 65%);
+}
+
 @layer components {
-  /* Layout */
   .ui-container {
-    @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+    @apply mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8;
   }
 
-  /* Surface */
+  /* More premium surface: tighter, cleaner shadow, nicer border */
   .ui-card {
-    @apply rounded-2xl border border-white/10 bg-zinc-950/60 shadow-[0_1px_0_rgba(255,255,255,0.04),0_18px_48px_rgba(0,0,0,0.55)];
+    @apply rounded-2xl border border-white/10 bg-zinc-950/50 shadow-[0_1px_0_rgba(255,255,255,0.05),0_26px_80px_rgba(0,0,0,0.55)];
   }
 
   .ui-card-hover {
-    @apply transition will-change-transform hover:-translate-y-[1px] hover:border-white/20 hover:bg-zinc-950/70;
+    @apply transition will-change-transform hover:-translate-y-[1px] hover:border-white/20 hover:bg-zinc-950/60;
   }
 
-  /* Typography helpers */
   .ui-pill {
     @apply inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] text-zinc-200;
   }
 
-  /* Buttons */
+  /* Premium buttons */
   .ui-btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm font-medium text-zinc-100 transition hover:bg-white/[0.07] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-2 text-sm font-medium text-zinc-100 transition hover:bg-white/[0.07] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .ui-btn-primary {
@@ -71,7 +76,6 @@ option {
     @apply border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/15;
   }
 
-  /* Inputs */
   .ui-input {
     @apply w-full rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 shadow-inner shadow-black/20 transition focus:border-white/20 focus:bg-black/55;
   }
@@ -80,16 +84,20 @@ option {
     @apply text-xs font-medium text-zinc-300;
   }
 
-  /* Empty state */
-  .ui-empty {
-    @apply ui-card flex flex-col items-center justify-center gap-2 p-10 text-center;
+  /* Landing specific */
+  .ui-hero {
+    @apply relative overflow-hidden rounded-[28px] border border-white/10 bg-zinc-950/40;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.06), 0 60px 140px rgba(0,0,0,0.72);
   }
 
-  .ui-empty-title {
-    @apply text-base font-semibold text-white;
+  .ui-glow {
+    @apply pointer-events-none absolute -inset-24 opacity-70 blur-3xl;
+    background: radial-gradient(circle at 30% 20%, rgba(99,102,241,0.22), transparent 45%),
+      radial-gradient(circle at 70% 40%, rgba(56,189,248,0.16), transparent 45%),
+      radial-gradient(circle at 50% 70%, rgba(244,63,94,0.10), transparent 55%);
   }
 
-  .ui-empty-subtitle {
-    @apply text-sm text-zinc-400 max-w-md;
+  .ui-code {
+    @apply rounded-2xl border border-white/10 bg-black/45;
   }
 }
