@@ -26,6 +26,20 @@ function windowLabel(seconds: number) {
   return `${hours % 1 === 0 ? hours.toFixed(0) : hours.toFixed(1)}h`;
 }
 
+function defaultPolicy(agentId: string): Policy {
+  // Matches the defaults used when creating agents in app/app/page.tsx
+  return {
+    agent_id: agentId,
+    balance_cents: 200,
+    allowed_models: [],
+    circuit_breaker_n: 10,
+    velocity_window_seconds: 3600,
+    velocity_cap_cents: 50,
+    webhook_url: null,
+    webhook_secret: null,
+  };
+}
+
 export default function AgentDetail({ params }: { params: { id: string } }) {
   const { loading, session } = useSession();
   const { toast, toastProps } = useToast();
@@ -34,12 +48,13 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
   const [agent, setAgent] = useState<{ id: string; name: string; status: string } | null>(null);
 
   const [policy, setPolicy] = useState<Policy | null>(null);
+  const [policyIsDefault, setPolicyIsDefault] = useState(false);
+
   const [live, setLive] = useState<{ balance_cents: number; velocity_cents: number; frozen: boolean } | null>(null);
 
+  const [allowanceKey, setAllowanceKey] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [selectedModels, setSelectedModels] = useState<string[]>([]);
-
-  const [allowanceKey, setAllowanceKey] = useState<string | null>(null);
   const [lastKeyPrefix, setLastKeyPrefix] = useState<string | null>(null);
   const [lastKeyRevokedAt, setLastKeyRevokedAt] = useState<string | null>(null);
 
@@ -48,94 +63,102 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
 
   const userId = session?.user?.id;
 
-  const liveSummary = useMemo(() => {
-    if (!policy || !live) return null;
-    const spent = Math.max(0, (policy.balance_cents ?? 0) - (live.balance_cents ?? 0));
-    return `Balance: $${(live.balance_cents / 100).toFixed(2)} • Velocity: $${(live.velocity_cents / 100).toFixed(
-      2
-    )} / ${windowLabel(policy.velocity_window_seconds)} • Spent: $${(spent / 100).toFixed(2)}`;
-  }, [policy, live]);
-
   async function load() {
     if (!userId) return;
 
-    const [{ data: prof }, { data: ag }, polRes, liveRes, keyRes, auditRes] = await Promise.all([
-      supabase.from("profiles").select("email,is_admin").eq("id", userId).maybeSingle(),
-      supabase.from("agents").select("id,name,status").eq("id", params.id).maybeSingle(),
-      authedFetch(`/api/allowance-policy?agentId=${encodeURIComponent(params.id)}`),
-      authedFetch(`/api/live?agentId=${encodeURIComponent(params.id)}`),
-      authedFetch(`/api/allowance-key?agentId=${encodeURIComponent(params.id)}`),
-      authedFetch(`/api/audit?agentId=${encodeURIComponent(params.id)}`),
-    ]);
+    const p = await supabase.from("profiles").select("email,is_admin").eq("id", userId).single();
+    setProfile(p.data as any);
 
-    setProfile((prof as any) ?? null);
-    setAgent((ag as any) ?? null);
+    const a = await supabase.from("agents").select("id,name,status").eq("id", params.id).single();
+    if (a.error) return;
+    setAgent(a.data as any);
 
-    const polJson = await polRes.json().catch(() => ({}));
-    if (polRes.ok && polJson?.policy) {
-      setPolicy(polJson.policy);
-      setSelectedModels(polJson.policy.allowed_models ?? []);
+    // ✅ FIX: if no policy row exists, load defaults so the editor still renders.
+    const pol = await supabase.from("agent_policies").select("*").eq("agent_id", params.id).single();
+    if (!pol.error && pol.data) {
+      setPolicy(pol.data as any);
+      setSelectedModels(((pol.data as any).allowed_models ?? []) as string[]);
+      setPolicyIsDefault(false);
     } else {
-      setPolicy(null);
+      const d = defaultPolicy(params.id);
+      setPolicy(d);
+      setSelectedModels([]);
+      setPolicyIsDefault(true);
     }
 
-    const liveJson = await liveRes.json().catch(() => ({}));
-    if (liveRes.ok && liveJson?.live) setLive(liveJson.live);
+    const { data: keys } = await supabase
+      .from("allowance_keys")
+      .select("prefix,revoked_at")
+      .eq("agent_id", params.id)
+      .order("created_at", { ascending: false })
+      .limit(1);
 
-    const keyJson = await keyRes.json().catch(() => ({}));
-    if (keyRes.ok && keyJson?.key) {
-      setAllowanceKey(keyJson.key ?? null);
-      setLastKeyPrefix(keyJson.prefix ?? null);
-      setLastKeyRevokedAt(keyJson.revoked_at ?? null);
-    } else if (keyRes.ok && keyJson?.prefix) {
-      setAllowanceKey(null);
-      setLastKeyPrefix(keyJson.prefix ?? null);
-      setLastKeyRevokedAt(keyJson.revoked_at ?? null);
+    if (!keys?.length || keys[0].revoked_at) setAllowanceKey(null);
+    if (keys?.length) {
+      setLastKeyPrefix(keys[0].prefix ?? null);
+      setLastKeyRevokedAt(keys[0].revoked_at ?? null);
     } else {
-      setAllowanceKey(null);
       setLastKeyPrefix(null);
       setLastKeyRevokedAt(null);
     }
 
-    const auditJson = await auditRes.json().catch(() => ({}));
-    if (auditRes.ok) {
-      setAuditSummary(auditJson?.summary ?? null);
-      setAuditByModel(auditJson?.by_model ?? []);
-    } else {
-      setAuditSummary(null);
-      setAuditByModel([]);
-    }
+    const sum = await supabase.from("agent_spend_summary").select("*").eq("agent_id", params.id).single();
+    if (!sum.error) setAuditSummary(sum.data);
+
+    const byModel = await supabase
+      .from("agent_spend_by_model")
+      .select("*")
+      .eq("agent_id", params.id)
+      .order("cost_cents", { ascending: false });
+
+    if (!byModel.error) setAuditByModel(byModel.data ?? []);
   }
 
-  async function savePolicy() {
-    if (!policy) return;
+  useEffect(() => {
+    if (!loading) load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, userId]);
 
-    const res = await authedFetch("/api/allowance-policy", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        agentId: params.id,
-        balance_cents: Number(policy.balance_cents ?? 0),
-        allowed_models: selectedModels,
-        velocity_window_seconds: Number(policy.velocity_window_seconds ?? 10),
-        velocity_cap_cents: Number(policy.velocity_cap_cents ?? 20),
-        circuit_breaker_n: Number(policy.circuit_breaker_n ?? 6),
-        webhook_url: policy.webhook_url ?? null,
-        webhook_secret: policy.webhook_secret ?? null,
-      }),
-    });
+  useEffect(() => {
+    if (loading || !userId) return;
+    let cancelled = false;
+    let t: any = null;
 
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      toast({ kind: "error", title: "Save failed", message: json?.error?.message ?? "Failed" });
-      return;
-    }
-    toast({ kind: "success", title: "Saved", message: "Allowance policy updated." });
-    await load();
-  }
+    const tick = async () => {
+      try {
+        const res = await authedFetch(`/api/live-balance?agentId=${encodeURIComponent(params.id)}`);
+        const json = await res.json().catch(() => null);
+        if (!cancelled && res.ok && json) {
+          setLive({
+            balance_cents: Number(json.balance_cents ?? 0),
+            velocity_cents: Number(json.velocity_cents ?? 0),
+            frozen: !!json.frozen,
+          });
+        }
+      } catch {}
+      if (!cancelled) t = setTimeout(tick, 650);
+    };
+
+    tick();
+    return () => {
+      cancelled = true;
+      if (t) clearTimeout(t);
+    };
+  }, [loading, userId, params.id]);
+
+  useEffect(() => {
+    if (loading || !userId) return;
+    (async () => {
+      try {
+        const res = await authedFetch("/api/openai-models");
+        const json = await res.json().catch(() => null);
+        if (res.ok && json?.models?.length) setAvailableModels(json.models);
+      } catch {}
+    })();
+  }, [loading, userId]);
 
   async function mintKey() {
-    const res = await authedFetch("/api/allowance-key", {
+    const res = await authedFetch("/api/mint-key", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ agentId: params.id }),
@@ -145,26 +168,34 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
       toast({ kind: "error", title: "Mint failed", message: json?.error?.message ?? "Failed" });
       return;
     }
-    setAllowanceKey(json?.key ?? null);
-    setLastKeyPrefix(json?.prefix ?? null);
-    setLastKeyRevokedAt(null);
-    toast({ kind: "success", title: "Minted", message: "New allowance key created." });
+    setAllowanceKey(json.key);
+    toast({ kind: "success", title: "Key minted", message: "Copy the key now. It will only be shown once." });
+    await load();
   }
 
-  async function revokeKey() {
-    const res = await authedFetch("/api/allowance-key", {
-      method: "DELETE",
+  async function savePolicy() {
+    if (!policy) return;
+
+    const res = await authedFetch("/api/save-policy", {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agentId: params.id }),
+      body: JSON.stringify({
+        agentId: params.id,
+        policy: { ...policy, allowed_models: selectedModels },
+      }),
     });
+
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
-      toast({ kind: "error", title: "Revoke failed", message: json?.error?.message ?? "Failed" });
+      toast({ kind: "error", title: "Save failed", message: json?.error?.message ?? "Failed" });
       return;
     }
-    setAllowanceKey(null);
-    setLastKeyRevokedAt(new Date().toISOString());
-    toast({ kind: "success", title: "Revoked", message: "Allowance key revoked." });
+    toast({
+      kind: "success",
+      title: "Saved",
+      message: policyIsDefault ? "Policy created for this agent." : "Allowance policy updated.",
+    });
+    setPolicyIsDefault(false);
     await load();
   }
 
@@ -179,6 +210,7 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
       toast({ kind: "error", title: "Kill switch failed", message: json?.error?.message ?? "Failed" });
       return;
     }
+    setPolicy((prev) => (prev ? { ...prev, balance_cents: 0 } : prev));
     toast({ kind: "success", title: "Kill switch enabled", message: "Agent frozen and balance set to $0." });
     await load();
   }
@@ -189,59 +221,31 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ agentId: params.id, freeze }),
     });
-    const json = await res.json().catch(() => ({}));
     if (!res.ok) {
-      toast({ kind: "error", title: "Freeze failed", message: json?.error?.message ?? "Failed" });
+      toast({ kind: "error", title: "Update failed", message: "Could not change frozen state." });
       return;
     }
-    toast({ kind: "success", title: freeze ? "Frozen" : "Unfrozen", message: "Updated agent state." });
+    toast({ kind: "success", title: freeze ? "Frozen" : "Unfrozen", message: "Agent status updated." });
     await load();
   }
 
-  useEffect(() => {
-    if (loading || !userId) return;
-    load().catch(() => null);
+  const email = profile?.email ?? session?.user?.email ?? "";
+  const isAdmin = !!profile?.is_admin;
 
-    let cancelled = false;
-    let t: any = null;
-
-    const tick = async () => {
-      if (cancelled) return;
-      try {
-        const res = await authedFetch(`/api/live?agentId=${encodeURIComponent(params.id)}`);
-        const json = await res.json().catch(() => ({}));
-        if (res.ok && json?.live) setLive(json.live);
-      } catch {}
-      if (!cancelled) t = setTimeout(tick, 4000);
-    };
-
-    t = setTimeout(tick, 4000);
-
-    return () => {
-      cancelled = true;
-      if (t) clearTimeout(t);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, userId, params.id]);
-
-  useEffect(() => {
-    if (loading || !userId) return;
-    (async () => {
-      try {
-        const res = await authedFetch("/api/openai-models");
-        const json = await res.json().catch(() => ({}));
-        if (res.ok && Array.isArray(json?.models)) setAvailableModels(json.models);
-      } catch {}
-    })();
-  }, [loading, userId]);
-
-  const email = profile?.email ?? "";
-  const isAdmin = profile?.is_admin ?? false;
+  const liveSummary = useMemo(() => {
+    if (!live) return null;
+    const parts = [
+      `Live remaining: $${(live.balance_cents / 100).toFixed(2)}`,
+      `Velocity: $${(live.velocity_cents / 100).toFixed(2)}`,
+    ];
+    if (live.frozen) parts.push("Frozen");
+    return parts.join(" • ");
+  }, [live]);
 
   return (
     <Layout userEmail={email} isAdmin={isAdmin}>
       <div className="grid gap-6">
-        <div className="ui-card p-6 w-full">
+        <div className="ui-card p-6">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
@@ -250,9 +254,7 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
                 {live?.frozen ? <span className="ui-pill">frozen</span> : null}
               </div>
               <p className="mt-1 text-sm text-zinc-400">Configure allowance policies and keys.</p>
-              {agent?.id ? (
-                <div className="mt-2 font-mono text-[11px] text-zinc-600 break-all">{agent.id}</div>
-              ) : null}
+              {agent?.id ? <div className="mt-2 font-mono text-[11px] text-zinc-600 break-all">{agent.id}</div> : null}
               {liveSummary ? <div className="mt-2 text-xs text-zinc-400">{liveSummary}</div> : null}
             </div>
 
@@ -280,22 +282,25 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
           </div>
         </div>
 
-        {/* ✅ FIX: minmax(0,1fr) prevents right column “drifting” due to min-content sizing */}
+        {/* ✅ FIX: prevent right column drift */}
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr),minmax(0,1fr)] lg:items-start">
-          {/* Left column */}
           <div className="ui-card p-6 min-w-0">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-white">Allowance policy</h2>
               <span className="ui-pill">live</span>
             </div>
 
+            {policyIsDefault ? (
+              <div className="mt-2 text-xs text-zinc-500">
+                No policy row existed for this agent. Defaults are loaded — click <span className="text-zinc-200">Save policy</span> to create it.
+              </div>
+            ) : null}
+
             {live && policy ? (
               <div className="mt-2 text-xs text-zinc-400">
                 Configured: <span className="text-white">${(policy.balance_cents / 100).toFixed(2)}</span> • Live remaining:{" "}
                 <span className="text-white">${(live.balance_cents / 100).toFixed(2)}</span> • Spent:{" "}
-                <span className="text-white">
-                  ${(((policy.balance_cents ?? 0) - (live.balance_cents ?? 0)) / 100).toFixed(2)}
-                </span>
+                <span className="text-white">${((policy.balance_cents - live.balance_cents) / 100).toFixed(2)}</span>
                 <span className="mx-2 text-zinc-600">|</span>
                 Velocity now: <span className="text-white">${(live.velocity_cents / 100).toFixed(2)}</span> /{" "}
                 <span className="text-white">${(policy.velocity_cap_cents / 100).toFixed(2)}</span> per{" "}
@@ -303,11 +308,7 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
               </div>
             ) : null}
 
-            {!policy ? (
-              <div className="mt-4 text-sm text-zinc-400">
-                No policy found. If this is a new agent, set a balance and save to create one.
-              </div>
-            ) : (
+            {policy ? (
               <div className="mt-4 grid gap-4">
                 <div className="grid gap-2">
                   <label className="ui-label">
@@ -326,6 +327,31 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
                   <div className="text-xs text-zinc-500">Displayed as dollars in the app. Stored as cents.</div>
                 </div>
 
+                <div className="grid gap-2">
+                  <label className="ui-label">Allowed models</label>
+                  <select
+                    className="ui-input h-40"
+                    multiple
+                    value={selectedModels}
+                    onChange={(e) => setSelectedModels(Array.from(e.target.selectedOptions).map((o) => o.value))}
+                  >
+                    {availableModels.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="text-xs text-zinc-500">Tip: Select none (empty) to allow all models.</div>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button className="ui-btn" type="button" onClick={() => setSelectedModels([])}>
+                      Allow all
+                    </button>
+                    <button className="ui-btn" type="button" onClick={() => setSelectedModels(availableModels)} disabled={!availableModels.length}>
+                      Select all
+                    </button>
+                  </div>
+                </div>
+
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="grid gap-2">
                     <label className="ui-label">Velocity window (seconds)</label>
@@ -334,14 +360,14 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
                       type="number"
                       min={1}
                       step={1}
-                      value={String(policy.velocity_window_seconds ?? 10)}
+                      value={String(policy.velocity_window_seconds ?? 0)}
                       onChange={(e) =>
-                        setPolicy((prev) =>
-                          prev ? { ...prev, velocity_window_seconds: Number(e.target.value || 0) } : prev
-                        )
+                        setPolicy((prev) => (prev ? { ...prev, velocity_window_seconds: Number(e.target.value || 0) } : prev))
                       }
                     />
+                    <div className="text-xs text-zinc-500">Shown as {windowLabel(policy.velocity_window_seconds)} in the UI.</div>
                   </div>
+
                   <div className="grid gap-2">
                     <label className="ui-label">Velocity cap (cents)</label>
                     <input
@@ -349,11 +375,9 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
                       type="number"
                       min={0}
                       step={1}
-                      value={String(policy.velocity_cap_cents ?? 20)}
+                      value={String(policy.velocity_cap_cents ?? 0)}
                       onChange={(e) =>
-                        setPolicy((prev) =>
-                          prev ? { ...prev, velocity_cap_cents: Number(e.target.value || 0) } : prev
-                        )
+                        setPolicy((prev) => (prev ? { ...prev, velocity_cap_cents: Number(e.target.value || 0) } : prev))
                       }
                     />
                   </div>
@@ -366,33 +390,11 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
                     type="number"
                     min={1}
                     step={1}
-                    value={String(policy.circuit_breaker_n ?? 6)}
+                    value={String(policy.circuit_breaker_n ?? 0)}
                     onChange={(e) =>
-                      setPolicy((prev) =>
-                        prev ? { ...prev, circuit_breaker_n: Number(e.target.value || 0) } : prev
-                      )
+                      setPolicy((prev) => (prev ? { ...prev, circuit_breaker_n: Number(e.target.value || 0) } : prev))
                     }
                   />
-                </div>
-
-                <div className="grid gap-2">
-                  <label className="ui-label">Allowed models</label>
-                  <select
-                    className="ui-input h-40"
-                    multiple
-                    value={selectedModels}
-                    onChange={(e) => {
-                      const opts = Array.from(e.target.selectedOptions).map((o) => o.value);
-                      setSelectedModels(opts);
-                    }}
-                  >
-                    {availableModels.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="text-xs text-zinc-500">Tip: Select none (empty) to allow all models.</div>
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -400,7 +402,7 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
                     <label className="ui-label">Webhook URL (optional)</label>
                     <input
                       className="ui-input"
-                      placeholder="https://example.com/webhook"
+                      placeholder="https://example.com/webhooks/allowance"
                       value={policy.webhook_url ?? ""}
                       onChange={(e) => setPolicy((prev) => (prev ? { ...prev, webhook_url: e.target.value } : prev))}
                     />
@@ -411,28 +413,26 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
                       className="ui-input"
                       placeholder="shared-secret"
                       value={policy.webhook_secret ?? ""}
-                      onChange={(e) =>
-                        setPolicy((prev) => (prev ? { ...prev, webhook_secret: e.target.value } : prev))
-                      }
+                      onChange={(e) => setPolicy((prev) => (prev ? { ...prev, webhook_secret: e.target.value } : prev))}
                     />
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <button className="ui-btn ui-btn-primary" onClick={savePolicy}>
                     Save policy
                   </button>
                   <button className="ui-btn" onClick={load}>
                     Reload
                   </button>
+                  <div className="sm:ml-auto text-xs text-zinc-500">Tip: keep velocity low for early testing, then ramp.</div>
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
 
-          {/* Right column */}
           <div className="grid gap-6 min-w-0">
-            <div className="ui-card p-6 w-full min-w-0">
+            <div className="ui-card p-6 min-w-0">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-white">Allowance key</h2>
                 <span className="ui-pill">auth</span>
@@ -454,9 +454,7 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
                         Copy
                       </button>
                     </div>
-                    <div className="mt-2 text-[11px] text-zinc-500">
-                      For safety, the full key is only shown once during mint.
-                    </div>
+                    <div className="mt-2 text-[11px] text-zinc-500">For safety, the full key is only shown once during mint.</div>
                   </div>
                 ) : (
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 min-w-0">
@@ -464,59 +462,67 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
                     <div className="mt-1 text-sm text-zinc-300">
                       {lastKeyPrefix ? (
                         <>
-                          Prefix: <span className="font-mono text-zinc-200">{lastKeyPrefix}</span>
+                          Prefix: <span className="font-mono text-zinc-100">{lastKeyPrefix}</span>
                         </>
                       ) : (
-                        "—"
+                        "No key minted yet."
                       )}
                     </div>
                     {lastKeyRevokedAt ? (
-                      <div className="mt-2 text-[11px] text-zinc-500">
-                        Last revoked: {new Date(lastKeyRevokedAt).toLocaleString()}
-                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">Revoked: {new Date(lastKeyRevokedAt).toLocaleString()}</div>
                     ) : null}
+                    <div className="mt-2 text-[11px] text-zinc-500">For safety, the full key is only shown once during mint.</div>
                   </div>
                 )}
 
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex gap-2">
-                    <button className="ui-btn ui-btn-primary" onClick={mintKey}>
-                      Mint new key
-                    </button>
-                    <button className="ui-btn ui-btn-danger" onClick={revokeKey}>
-                      Revoke key
-                    </button>
-                  </div>
+                <button className="ui-btn ui-btn-primary w-full" onClick={mintKey}>
+                  Mint new key
+                </button>
 
-                  <div className="text-xs text-zinc-500">
-                    Example header: <span className="font-mono">Authorization: Bearer &lt;allowance_key&gt;</span>
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <div className="text-xs text-zinc-400">Example header</div>
+                  <div className="mt-2 font-mono text-xs text-zinc-200 break-all">
+                    Authorization: Bearer &lt;allowance_key&gt;
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="ui-card p-6 w-full">
+            <div className="ui-card p-6">
               <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-white">Audit</h2>
-                <span className="ui-pill">spend + token usage</span>
+                <div>
+                  <h2 className="text-sm font-semibold text-white">Audit</h2>
+                  <p className="mt-1 text-sm text-zinc-400">Spend + token usage for this agent.</p>
+                </div>
               </div>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                   <div className="text-xs text-zinc-400">Total spend</div>
-                  <div className="mt-1 text-sm text-white">${((auditSummary?.spend_cents ?? 0) / 100).toFixed(2)}</div>
+                  <div className="mt-1 text-lg font-semibold text-white break-all tabular-nums leading-tight">
+                    ${((auditSummary?.cost_cents ?? 0) / 100).toFixed(2)}
+                  </div>
                 </div>
-                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                   <div className="text-xs text-zinc-400">Requests</div>
-                  <div className="mt-1 text-sm text-white">{auditSummary?.requests ?? 0}</div>
+                  <div className="mt-1 text-lg font-semibold text-white break-all tabular-nums leading-tight">
+                    {auditSummary?.request_count ?? 0}
+                  </div>
                 </div>
-                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                   <div className="text-xs text-zinc-400">Prompt tokens</div>
-                  <div className="mt-1 text-sm text-white">{auditSummary?.prompt_tokens ?? 0}</div>
+                  <div className="mt-1 text-lg font-semibold text-white break-all tabular-nums leading-tight">
+                    {auditSummary?.prompt_tokens ?? 0}
+                  </div>
                 </div>
-                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+
+                <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
                   <div className="text-xs text-zinc-400">Completion tokens</div>
-                  <div className="mt-1 text-sm text-white">{auditSummary?.completion_tokens ?? 0}</div>
+                  <div className="mt-1 text-lg font-semibold text-white break-all tabular-nums leading-tight">
+                    {auditSummary?.completion_tokens ?? 0}
+                  </div>
                 </div>
               </div>
 
@@ -533,13 +539,13 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
                   </thead>
                   <tbody className="text-zinc-200">
                     {(auditByModel ?? []).length ? (
-                      auditByModel.map((row, i) => (
+                      auditByModel.map((row: any, i: number) => (
                         <tr key={i} className="border-t border-white/10">
                           <td className="py-2 pr-3 font-mono text-[11px]">{row.model}</td>
-                          <td className="py-2 pr-3">{row.requests}</td>
+                          <td className="py-2 pr-3">{row.request_count}</td>
                           <td className="py-2 pr-3">{row.prompt_tokens}</td>
                           <td className="py-2 pr-3">{row.completion_tokens}</td>
-                          <td className="py-2 pr-3">${((row.spend_cents ?? 0) / 100).toFixed(2)}</td>
+                          <td className="py-2 pr-3">${((row.cost_cents ?? 0) / 100).toFixed(2)}</td>
                         </tr>
                       ))
                     ) : (

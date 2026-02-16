@@ -133,18 +133,16 @@ await forsig.chat.completions.create({
               </div>
 
               <div className="mt-8 grid gap-3 sm:grid-cols-3 max-w-xl">
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <div className="text-lg font-semibold text-white">1 line</div>
-                  <div className="mt-1 text-xs text-zinc-400">Drop-in enforcement</div>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <div className="text-lg font-semibold text-white">Reserve → settle</div>
-                  <div className="mt-1 text-xs text-zinc-400">Exact usage accounting</div>
-                </div>
-                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-                  <div className="text-lg font-semibold text-white">Instant</div>
-                  <div className="mt-1 text-xs text-zinc-400">Freeze & revoke keys</div>
-                </div>
+                {[
+                  { v: "1 line", l: "Drop-in enforcement" },
+                  { v: "Reserve → settle", l: "Exact usage accounting" },
+                  { v: "Instant", l: "Freeze & revoke keys" },
+                ].map((m) => (
+                  <div key={m.v} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                    <div className="text-lg font-semibold text-white">{m.v}</div>
+                    <div className="mt-1 text-xs text-zinc-400">{m.l}</div>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -163,7 +161,7 @@ await forsig.chat.completions.create({
       <Section
         eyebrow="Product"
         title="A control plane for agent spend"
-        subtitle="Everything you need to ship safely: scoped keys, predictable budgets, and audit-ready logs."
+        subtitle="Scoped keys, predictable budgets, and audit-ready logs — built for production."
       >
         <div id="product" className="grid gap-4 lg:grid-cols-3">
           {[
@@ -182,7 +180,7 @@ await forsig.chat.completions.create({
             {
               icon: <LineChart className="h-5 w-5 text-white" />,
               title: "Audit-grade logs",
-              desc: "See spend, request counts, tokens, and model breakdowns — ready for ops and finance.",
+              desc: "Spend, requests, tokens, model breakdowns — ready for ops and finance.",
               bullets: ["Per-model spend", "Token breakdowns", "Export-ready reporting"],
             },
           ].map((f) => (
@@ -263,7 +261,7 @@ await forsig.chat.completions.create({
               ))}
             </div>
             <div className="mt-8">
-              <a className="ui-btn ui-btn-primary w-full" href="mailto:thenazmulkarim@gmail.com.com">
+              <a className="ui-btn ui-btn-primary w-full" href="mailto:founders@forsig.com">
                 Talk to founders <ArrowRight className="h-4 w-4" />
               </a>
             </div>
