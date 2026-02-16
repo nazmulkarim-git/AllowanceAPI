@@ -56,9 +56,9 @@ export default function Layout({
     <div className="min-h-screen">
       <motion.header
         {...headerMotion}
-        className="sticky top-0 z-40 border-b border-white/10 bg-black/40 backdrop-blur"
+        className="sticky top-0 z-40 border-b border-white/10 bg-black/35 backdrop-blur"
       >
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
+        <div className="ui-container flex items-center justify-between py-3">
           <Link href="/" className="group inline-flex items-center gap-2">
             <span className="relative inline-flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04]">
               <Sparkles className="h-4 w-4 text-zinc-100" />
@@ -93,7 +93,7 @@ export default function Layout({
         </div>
       </motion.header>
 
-      <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 md:grid-cols-[260px,1fr]">
+      <div className="ui-container grid gap-6 py-6 md:grid-cols-[260px,1fr]">
         <aside className="ui-card h-fit p-2 md:sticky md:top-[84px]">
           <nav className="grid gap-1">
             {NAV.map(({ href, label, icon: Icon }) => (

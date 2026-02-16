@@ -31,15 +31,7 @@ function SectionTitle({
   );
 }
 
-function Feature({
-  icon,
-  title,
-  desc,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  desc: string;
-}) {
+function Feature({ icon, title, desc }: { icon: React.ReactNode; title: string; desc: string }) {
   return (
     <div className="ui-card p-6">
       <div className="flex items-start gap-4">
@@ -87,8 +79,8 @@ const res = await forsig.chat.completions.create({
 
   return (
     <main>
-      <header className="sticky top-0 z-40 border-b border-white/10 bg-black/40 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
+      <header className="sticky top-0 z-40 border-b border-white/10 bg-black/35 backdrop-blur">
+        <div className="ui-container flex items-center justify-between py-3">
           <Link href="/" className="inline-flex items-center gap-2">
             <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04]">
               <Sparkles className="h-4 w-4 text-zinc-100" />
@@ -110,7 +102,7 @@ const res = await forsig.chat.completions.create({
         </div>
       </header>
 
-      <section className="mx-auto max-w-7xl px-4 pt-14 pb-10 sm:pt-20 sm:pb-16">
+      <section className="ui-container pt-14 pb-10 sm:pt-20 sm:pb-16">
         <div className="grid items-center gap-10 lg:grid-cols-[1.15fr_0.85fr]">
           <div>
             <div className="ui-pill w-fit">
@@ -138,11 +130,7 @@ const res = await forsig.chat.completions.create({
             </div>
 
             <div className="mt-6 grid gap-2 sm:grid-cols-3">
-              {[
-                "Budgets + velocity caps",
-                "Allowlisted models",
-                "Reserve → settle with exact usage",
-              ].map((t) => (
+              {["Budgets + velocity caps", "Allowlisted models", "Reserve → settle with exact usage"].map((t) => (
                 <div key={t} className="flex items-center gap-2 text-sm text-zinc-300">
                   <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/10 bg-white/[0.04]">
                     <Check className="h-3.5 w-3.5" />
@@ -162,7 +150,7 @@ const res = await forsig.chat.completions.create({
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-4 pb-10 sm:pb-14" id="how-it-works">
+      <section className="ui-container pb-10 sm:pb-14" id="how-it-works">
         <SectionTitle
           eyebrow="How it works"
           title="A control plane for agent spend"
@@ -190,18 +178,9 @@ const res = await forsig.chat.completions.create({
         <div className="mt-6 ui-card p-6">
           <div className="grid gap-4 lg:grid-cols-3">
             {[
-              {
-                k: "Preflight reserve",
-                v: "Reserve prompt + max_output before execution. If budget fails, block early.",
-              },
-              {
-                k: "Settle exact usage",
-                v: "After usage returns, settle using the exact token counts — no guessing.",
-              },
-              {
-                k: "Operator controls",
-                v: "Freeze and kill switch are built in for incident response.",
-              },
+              { k: "Preflight reserve", v: "Reserve prompt + max_output before execution. If budget fails, block early." },
+              { k: "Settle exact usage", v: "After usage returns, settle using the exact token counts — no guessing." },
+              { k: "Operator controls", v: "Freeze and kill switch are built in for incident response." },
             ].map((x) => (
               <div key={x.k} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                 <div className="text-sm font-semibold text-white">{x.k}</div>
@@ -212,7 +191,7 @@ const res = await forsig.chat.completions.create({
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-4 pb-14 sm:pb-20">
+      <section className="ui-container pb-14 sm:pb-20">
         <div className="ui-card p-8 sm:p-10">
           <div className="flex flex-col items-start justify-between gap-6 sm:flex-row sm:items-center">
             <div className="max-w-2xl">

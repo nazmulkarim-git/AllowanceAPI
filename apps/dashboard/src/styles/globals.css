@@ -12,7 +12,7 @@ body {
 }
 
 body {
-  background: #000;
+  background: #0b0f14;
   color: rgb(244 244 245);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -32,21 +32,25 @@ option {
   outline-offset: 2px;
 }
 
-/* Subtle grid background (used in RootLayout) */
-.bg-grid {
-  background-image: linear-gradient(to right, rgba(255, 255, 255, 0.06) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.06) 1px, transparent 1px);
-  background-size: 48px 48px;
+/* Premium background helpers (used in RootLayout) */
+.bg-noise {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.25'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
 }
 
 @layer components {
+  /* Layout */
+  .ui-container {
+    @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+  }
+
   /* Surface */
   .ui-card {
-    @apply rounded-2xl border border-white/10 bg-zinc-950/70 shadow-[0_8px_24px_rgba(0,0,0,0.35)] backdrop-blur;
+    @apply rounded-2xl border border-white/10 bg-zinc-950/60 shadow-[0_1px_0_rgba(255,255,255,0.04),0_18px_48px_rgba(0,0,0,0.55)];
   }
 
   .ui-card-hover {
-    @apply transition will-change-transform hover:-translate-y-[1px] hover:border-white/20 hover:bg-zinc-950/80;
+    @apply transition will-change-transform hover:-translate-y-[1px] hover:border-white/20 hover:bg-zinc-950/70;
   }
 
   /* Typography helpers */
@@ -56,7 +60,7 @@ option {
 
   /* Buttons */
   .ui-btn {
-    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-3.5 py-2 text-sm font-medium text-zinc-100 transition hover:bg-white/[0.08] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3.5 py-2 text-sm font-medium text-zinc-100 transition hover:bg-white/[0.07] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50;
   }
 
   .ui-btn-primary {
@@ -69,7 +73,7 @@ option {
 
   /* Inputs */
   .ui-input {
-    @apply w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 shadow-inner shadow-black/20 transition focus:border-white/20 focus:bg-black/55;
+    @apply w-full rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-sm text-zinc-100 placeholder:text-zinc-500 shadow-inner shadow-black/20 transition focus:border-white/20 focus:bg-black/55;
   }
 
   .ui-label {

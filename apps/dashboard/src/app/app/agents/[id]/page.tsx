@@ -245,7 +245,7 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
               )}
 
               <button
-                className="ui-btn border-red-500/30 bg-red-500/10 text-red-200 hover:bg-red-500/15"
+                className="ui-btn ui-btn-danger"
                 onClick={() => {
                   const ok = confirm("Kill switch will freeze the agent and set balance to $0. Continue?");
                   if (ok) killSwitch();
@@ -257,7 +257,8 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+        {/* Keep a strict two-column grid so right-side cards don't drift/shift on wide screens. */}
+        <div className="grid gap-6 lg:grid-cols-2">
           <div className="ui-card p-6">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-white">Allowance policy</h2>
@@ -423,7 +424,7 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
             )}
           </div>
 
-          <div className="grid gap-4">
+          <div className="grid gap-6">
             <div className="ui-card p-6">
               <div className="flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-white">Allowance key</h2>
@@ -473,7 +474,7 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
                   </div>
                 )}
 
-                <button className="ui-btn ui-btn-primary" onClick={mintKey}>
+                <button className="ui-btn ui-btn-primary w-full" onClick={mintKey}>
                   Mint new key
                 </button>
 
