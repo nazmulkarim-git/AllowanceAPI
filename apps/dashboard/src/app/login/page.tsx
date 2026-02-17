@@ -12,9 +12,29 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
+    const params = new URLSearchParams(window.location.search);
+    const isSignout = params.get("signout") === "1";
+
+    (async () => {
+      if (isSignout) {
+        // Ensure session is destroyed, then stay on login page
+        try {
+          await supabase.auth.signOut();
+        } catch {}
+        try {
+          for (const k of Object.keys(localStorage)) {
+            if (k.startsWith("sb-")) localStorage.removeItem(k);
+          }
+          for (const k of Object.keys(sessionStorage)) {
+            if (k.startsWith("sb-")) sessionStorage.removeItem(k);
+          }
+        } catch {}
+        return;
+      }
+
+      const { data } = await supabase.auth.getSession();
       if (data.session) window.location.href = "/app";
-    });
+    })();
   }, []);
 
   async function submit(e: React.FormEvent) {

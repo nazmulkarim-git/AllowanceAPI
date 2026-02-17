@@ -35,18 +35,8 @@ export default function AppHome() {
 
   async function load() {
     if (!userId) return;
-    const p = await supabase
-      .from("profiles")
-      .select("email,is_admin")
-      .eq("id", userId)
-      .maybeSingle();
-
-    setProfile(
-      (p.data as any) ?? {
-        email: session?.user?.email ?? "",
-        is_admin: false,
-      }
-    );
+    const p = await supabase.from("profiles").select("email,is_admin").eq("id", userId).maybeSingle();
+    setProfile((p.data as any) ?? { email: session?.user?.email ?? "", is_admin: false });
 
     const { data, error } = await supabase
       .from("agents")
@@ -126,27 +116,25 @@ export default function AppHome() {
   }, [loading, agents]);
 
   async function createAgent() {
-    if (!name.trim() || !userId) return;
+    if (!name.trim()) return;
     setBusy(true);
     try {
-      const { data: a, error } = await supabase
-        .from("agents")
-        .insert({ name, user_id: userId })
-        .select("id")
-        .single();
-      if (error) {
-        toast({ kind: "error", title: "Could not create agent", message: error.message });
+      const res = await authedFetch("/api/create-agent", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+
+      const json = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        toast({
+          kind: "error",
+          title: "Could not create agent",
+          message: json?.error ?? "Unknown error",
+        });
         return;
       }
-
-      await supabase.from("agent_policies").insert({
-        agent_id: a.id,
-        balance_cents: 200,
-        allowed_models: [], // empty => allow all models (worker already behaves this way)
-        circuit_breaker_n: 10,
-        velocity_window_seconds: 3600,
-        velocity_cap_cents: 50,
-      });
 
       setName("");
       await load();

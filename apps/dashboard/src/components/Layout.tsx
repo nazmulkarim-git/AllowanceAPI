@@ -82,22 +82,22 @@ export default function Layout({
               className="ui-btn"
               onClick={async () => {
                 try {
-                  // Try normal signout first
-                  await supabase.auth.signOut({ scope: "global" as any });
-                } catch (e) {
-                  // ignore
-                } finally {
-                  // Hard reset: clear Supabase auth storage keys and reload
-                  try {
-                    for (const k of Object.keys(localStorage)) {
-                      if (k.startsWith("sb-")) localStorage.removeItem(k);
-                    }
-                    for (const k of Object.keys(sessionStorage)) {
-                      if (k.startsWith("sb-")) sessionStorage.removeItem(k);
-                    }
-                  } catch {}
-                  window.location.href = "/login";
-                }
+                  // Best-effort sign out
+                  await supabase.auth.signOut();
+                } catch {}
+
+                // Always hard-clear any Supabase auth leftovers
+                try {
+                  for (const k of Object.keys(localStorage)) {
+                    if (k.startsWith("sb-")) localStorage.removeItem(k);
+                  }
+                  for (const k of Object.keys(sessionStorage)) {
+                    if (k.startsWith("sb-")) sessionStorage.removeItem(k);
+                  }
+                } catch {}
+
+                // IMPORTANT: pass signout=1 so /login does NOT auto-redirect back to /app
+                window.location.href = "/login?signout=1";
               }}
               title="Sign out"
             >
