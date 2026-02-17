@@ -2,17 +2,17 @@
 "use client";
 
 import Link from "next/link";
+import { useMemo, useState } from "react";
 import {
   ArrowRight,
   ShieldCheck,
   Gauge,
   KeyRound,
-  LineChart,
   Zap,
-  Lock,
   Eye,
+  Lock,
   Check,
-  Code2,
+  Mail,
 } from "lucide-react";
 
 function cx(...c: Array<string | false | null | undefined>) {
@@ -20,500 +20,418 @@ function cx(...c: Array<string | false | null | undefined>) {
 }
 
 function Pill({ children }: { children: React.ReactNode }) {
-  return <div className="ui-pill">{children}</div>;
+  return (
+    <span className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-white/80 backdrop-blur">
+      {children}
+    </span>
+  );
 }
 
-function SectionHeader({
+function Card({
+  icon,
+  title,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6 shadow-sm backdrop-blur">
+      <div className="flex items-start gap-3">
+        <div className="mt-0.5 inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04]">
+          {icon}
+        </div>
+        <div>
+          <div className="text-base font-semibold text-white">{title}</div>
+          <div className="mt-1 text-sm leading-6 text-white/70">{children}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Section({
+  id,
   eyebrow,
   title,
   subtitle,
+  children,
 }: {
+  id?: string;
   eyebrow?: string;
   title: string;
   subtitle?: string;
+  children: React.ReactNode;
 }) {
   return (
-    <div className="mx-auto max-w-3xl text-center">
-      {eyebrow ? (
-        <div className="mx-auto w-fit">
-          <Pill>{eyebrow}</Pill>
-        </div>
-      ) : null}
-      <h2 className="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-        {title}
-      </h2>
-      {subtitle ? (
-        <p className="mt-3 text-base leading-7 text-zinc-400">{subtitle}</p>
-      ) : null}
-    </div>
-  );
-}
-
-function Stat({ value, label }: { value: string; label: string }) {
-  return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-      <div className="text-lg font-semibold text-white">{value}</div>
-      <div className="mt-1 text-xs text-zinc-400">{label}</div>
-    </div>
-  );
-}
-
-function CodePanel({ title, code }: { title: string; code: string }) {
-  return (
-    <div className="ui-code overflow-hidden">
-      <div className="flex items-center justify-between border-b border-white/10 bg-white/[0.03] px-4 py-3">
-        <div className="flex items-center gap-2 text-xs text-zinc-400">
-          <Code2 className="h-4 w-4" />
-          {title}
-        </div>
-        <span className="ui-pill">one line</span>
-      </div>
-      <pre className="overflow-x-auto p-4 text-xs leading-6 text-zinc-200">
-        <code>{code}</code>
-      </pre>
-    </div>
-  );
-}
-
-function NumberedFeature({
-  n,
-  title,
-  desc,
-  icon,
-}: {
-  n: string;
-  title: string;
-  desc: string;
-  icon: React.ReactNode;
-}) {
-  return (
-    <div className="ui-card ui-card-hover p-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="text-[11px] font-semibold tracking-widest text-zinc-500">
-            {n}
+    <section id={id} className="mx-auto max-w-6xl px-4 py-16">
+      <div className="mx-auto max-w-3xl text-center">
+        {eyebrow ? (
+          <div className="mx-auto w-fit">
+            <Pill>{eyebrow}</Pill>
           </div>
-          <div className="mt-2 text-sm font-semibold text-white">{title}</div>
-          <div className="mt-2 text-sm leading-6 text-zinc-400">{desc}</div>
-        </div>
-        <div className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04]">
-          {icon}
-        </div>
+        ) : null}
+        <h2 className="mt-4 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+          {title}
+        </h2>
+        {subtitle ? (
+          <p className="mt-3 text-base leading-7 text-white/70">{subtitle}</p>
+        ) : null}
       </div>
-    </div>
+      <div className="mt-10">{children}</div>
+    </section>
   );
 }
 
-function MiniLogo({ name }: { name: string }) {
+function CodeBlock({ children }: { children: string }) {
   return (
-    <div className="flex items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-zinc-300">
-      {name}
-    </div>
+    <pre className="overflow-x-auto rounded-2xl border border-white/10 bg-black/40 p-5 text-sm leading-6 text-white/80">
+      <code>{children}</code>
+    </pre>
   );
 }
 
-export default function Page() {
-  const code = `import { Forsig } from "@forsig/sdk";
+export default function Landing() {
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [company, setCompany] = useState("");
+  const [status, setStatus] = useState<null | { ok: boolean; msg: string }>(
+    null
+  );
+  const [loading, setLoading] = useState(false);
 
-const forsig = new Forsig({
-  allowanceKey: process.env.FORSIG_KEY,
-});
+  const primaryBtn =
+    "inline-flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-2.5 text-sm font-semibold text-black shadow-lg shadow-white/10 transition hover:shadow-white/20";
+  const secondaryBtn =
+    "inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-5 py-2.5 text-sm font-semibold text-white/90 backdrop-blur transition hover:border-white/15 hover:bg-white/[0.07]";
 
-await forsig.chat.completions.create({
-  model: "gpt-4o-mini",
-  messages: [{ role: "user", content: "Summarize this ticket…" }],
-});`;
+  const canSubmit = useMemo(() => {
+    return email.trim().length > 3 && email.includes("@") && !loading;
+  }, [email, loading]);
+
+  async function joinWaitlist(e: React.FormEvent) {
+    e.preventDefault();
+    setStatus(null);
+    setLoading(true);
+    try {
+      const res = await fetch("/api/waitlist", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: email.trim(),
+          name: name.trim() || null,
+          company: company.trim() || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error?.message || "Failed");
+      setStatus({ ok: true, msg: "You're on the waitlist. We'll email you soon." });
+      setEmail("");
+      setName("");
+      setCompany("");
+    } catch (err: any) {
+      setStatus({ ok: false, msg: err?.message || "Something went wrong" });
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
-    <main className="relative">
-      {/* Premium backdrop (Salus: clean, Zion: grid, Sentrial: calm) */}
-      <div className="pointer-events-none absolute inset-0 bg-grid opacity-[0.12]" />
-      <div className="pointer-events-none absolute inset-0 bg-noise opacity-[0.35]" />
-
-      {/* Header (Zion-like minimal nav) */}
-      <header className="sticky top-0 z-40 border-b border-white/10 bg-black/35 backdrop-blur">
-        <div className="ui-container flex items-center justify-between py-3">
+    <main className="min-h-screen">
+      {/* Top nav */}
+      <header className="mx-auto max-w-6xl px-4 pt-8">
+        <div className="flex items-center justify-between">
           <Link href="/" className="inline-flex items-center gap-2">
-            <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04]">
-              <ShieldCheck className="h-4 w-4 text-zinc-100" />
-            </span>
+            <div className="h-8 w-8 rounded-xl border border-white/10 bg-white/5" />
             <div className="leading-tight">
-              <div className="text-sm font-semibold tracking-tight text-zinc-100">
-                Forsig
-              </div>
-              <div className="text-[11px] text-zinc-400">
-                Allowance-native AI gateway
-              </div>
+              <div className="text-sm font-semibold text-white">Forsig</div>
+              <div className="text-xs text-white/60">Runtime guardrails for OpenAI</div>
             </div>
           </Link>
 
-          <nav className="hidden items-center gap-2 sm:flex">
-            <a className="ui-btn" href="#how">
+          <nav className="hidden items-center gap-2 md:flex">
+            <Link className="rounded-lg px-3 py-2 text-sm text-white/70 hover:text-white" href="#how">
               How it works
-            </a>
-            <a className="ui-btn" href="#product">
+            </Link>
+            <Link className="rounded-lg px-3 py-2 text-sm text-white/70 hover:text-white" href="#features">
               Product
-            </a>
-            <a className="ui-btn" href="#pricing">
+            </Link>
+            <Link className="rounded-lg px-3 py-2 text-sm text-white/70 hover:text-white" href="#pricing">
               Pricing
-            </a>
-            <Link className="ui-btn" href="/docs">
+            </Link>
+            <Link className="rounded-lg px-3 py-2 text-sm text-white/70 hover:text-white" href="/docs">
               Docs
             </Link>
+            <Link className={secondaryBtn} href="/talk-to-founders">
+              Talk to founders <ArrowRight className="h-4 w-4" />
+            </Link>
           </nav>
-
-          <Link className="ui-btn ui-btn-primary" href="/login">
-            Open dashboard <ArrowRight className="h-4 w-4" />
-          </Link>
         </div>
       </header>
 
-      {/* HERO (Zion: bold headline + code, Salus: validate/guardrails positioning) */}
-      <section className="ui-container pt-10 sm:pt-14">
-        <div className="ui-hero">
-          <div className="ui-glow" />
-          <div className="relative grid gap-10 p-8 sm:p-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
-            <div className="min-w-0">
-              <Pill>
-                <span className="inline-flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                  System Operational
-                </span>
-                <span className="mx-2 text-zinc-600">•</span>
-                Budgets • Velocity caps • Audit trail • Kill switch
-              </Pill>
+      {/* Hero */}
+      <section className="mx-auto max-w-6xl px-4 pb-16 pt-14">
+        <div className="mx-auto max-w-3xl text-center">
+          <div className="mx-auto w-fit">
+            <Pill>
+              <ShieldCheck className="h-3.5 w-3.5" />
+              OpenAI compatible today · Anthropic & Google coming soon
+            </Pill>
+          </div>
 
-              <h1 className="mt-4 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-                Make AI spend predictable.
-                <span className="block text-zinc-300">
-                  Guardrails before execution.
-                </span>
-              </h1>
+          <h1 className="mt-6 text-4xl font-semibold tracking-tight text-white sm:text-6xl">
+            Predictable AI spend.
+            <span className="block text-white/70">Enforced at runtime.</span>
+          </h1>
 
-              <p className="mt-4 max-w-xl text-base leading-7 text-zinc-400">
-                Forsig sits between your app and model providers. Issue allowance
-                keys, enforce budgets and velocity caps at runtime, and get
-                audit-ready logs — without changing how your team builds.
-              </p>
+          <p className="mt-5 text-base leading-7 text-white/70 sm:text-lg">
+            Forsig sits between your app and OpenAI to enforce budgets, velocity caps,
+            model allowlists, and instant shutdown — then settles exact usage for audit
+            and reporting.
+          </p>
 
-              <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                <Link className="ui-btn ui-btn-primary px-5" href="/login">
-                  Launch dashboard <ArrowRight className="h-4 w-4" />
-                </Link>
-                <a className="ui-btn px-5" href="#how">
-                  See how it works
-                </a>
-              </div>
+          <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+            <a className={primaryBtn} href="#waitlist">
+              Join waitlist <ArrowRight className="h-4 w-4" />
+            </a>
+            <Link className={secondaryBtn} href="/talk-to-founders">
+              Talk to founders <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
 
-              <div className="mt-8 grid gap-3 sm:grid-cols-3">
-                <Stat value="1 line" label="Drop-in enforcement" />
-                <Stat value="Reserve → settle" label="Exact usage accounting" />
-                <Stat value="Instant" label="Freeze & revoke keys" />
-              </div>
-
-              <div className="mt-6 text-xs text-zinc-500">
-                Built for production agent workflows: predictable cost, safer
-                actions, and faster incident response.
-              </div>
+          <div className="mt-8 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/70">
+              ✅ Keep your OpenAI SDK
             </div>
-
-            <div className="grid gap-3">
-              <CodePanel title="one line to enforce spend" code={code} />
-              <div className="ui-card p-5">
-                <div className="flex items-center justify-between">
-                  <div className="text-sm font-semibold text-white">
-                    Works with your stack
-                  </div>
-                  <span className="ui-pill">OpenAI-compatible</span>
-                </div>
-                <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  <MiniLogo name="OpenAI" />
-                  <MiniLogo name="Anthropic" />
-                  <MiniLogo name="LangChain" />
-                  <MiniLogo name="LangGraph" />
-                  <MiniLogo name="Vercel" />
-                  <MiniLogo name="Supabase" />
-                </div>
-              </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/70">
+              ✅ Drop-in baseURL change
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/70">
+              ✅ Audit-grade logs
             </div>
           </div>
+        </div>
+
+        {/* Real integration snippet (no fake SDK) */}
+        <div className="mx-auto mt-10 max-w-4xl">
+          <CodeBlock
+            children={`import OpenAI from "openai";
+
+const client = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  baseURL: "https://api.forsig.com/v1", // point to Forsig gateway
+  defaultHeaders: {
+    "x-forsig-allowance-key": process.env.FORSIG_ALLOWANCE_KEY!,
+  },
+});
+
+const resp = await client.chat.completions.create({
+  model: "gpt-4o-mini",
+  messages: [{ role: "user", content: "Summarize this ticket..." }],
+});`}
+          />
+          <p className="mt-3 text-center text-xs text-white/55">
+            OpenAI compatible today. Anthropic & Google are coming soon.
+          </p>
         </div>
       </section>
 
-      {/* HOW IT WORKS (Zion: “sits between” diagram, Sentrial: production framing) */}
-      <section id="how" className="ui-container py-14 sm:py-20">
-        <SectionHeader
-          eyebrow="How it works"
-          title="Forsig enforces policy between your app and the model provider"
-          subtitle="Preflight spend + tool policies, execute safely, then settle exact usage for reporting and control."
-        />
-
-        <div className="mt-10 ui-card p-6 sm:p-8">
-          <div className="grid gap-4 lg:grid-cols-4">
-            {[
-              {
-                t: "Your app",
-                d: "You call the model as usual.",
-                icon: <Zap className="h-5 w-5 text-white" />,
-              },
-              {
-                t: "Forsig gateway",
-                d: "Preflight budgets, velocity, allowlists.",
-                icon: <Gauge className="h-5 w-5 text-white" />,
-              },
-              {
-                t: "Model provider",
-                d: "Request executes using your provider.",
-                icon: <KeyRound className="h-5 w-5 text-white" />,
-              },
-              {
-                t: "Audit trail",
-                d: "Settle exact tokens and cost breakdowns.",
-                icon: <LineChart className="h-5 w-5 text-white" />,
-              },
-            ].map((s) => (
-              <div
-                key={s.t}
-                className="relative rounded-2xl border border-white/10 bg-white/[0.03] p-5"
-              >
-                <div className="mb-3 inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.04]">
-                  {s.icon}
-                </div>
-                <div className="text-sm font-semibold text-white">{s.t}</div>
-                <div className="mt-1 text-sm leading-6 text-zinc-400">
-                  {s.d}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="text-sm text-zinc-400">
-              Key idea: enforcement travels with the{" "}
-              <span className="text-zinc-200">allowance key</span>.
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {["Budgets", "Velocity caps", "Model allowlist", "Freeze", "Kill switch"].map(
-                (x) => (
-                  <span key={x} className="ui-pill">
-                    {x}
-                  </span>
-                )
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* PRODUCT (Salus: numbered product blocks) */}
-      <section id="product" className="ui-container py-14 sm:py-20">
-        <SectionHeader
-          eyebrow="Our product"
-          title="Runtime guardrails for cost and control"
-          subtitle="The simplest path to safer agents: enforce at runtime, respond instantly, and understand every request."
-        />
-
-        <div className="mt-10 grid gap-4 lg:grid-cols-2">
-          <NumberedFeature
-            n="01"
-            title="Runtime enforcement"
-            desc="Intercept every request and verify it against budgets, velocity caps, and allowlists before it runs."
-            icon={<ShieldCheck className="h-5 w-5 text-white" />}
-          />
-          <NumberedFeature
-            n="02"
-            title="Instant operator controls"
-            desc="Freeze an agent immediately when you see anomalies — or flip the kill switch during an incident."
-            icon={<Lock className="h-5 w-5 text-white" />}
-          />
-          <NumberedFeature
-            n="03"
-            title="Allowance keys"
-            desc="Issue scoped keys that carry policy with them. Rotate keys safely, revoke instantly, and share prefixes."
-            icon={<KeyRound className="h-5 w-5 text-white" />}
-          />
-          <NumberedFeature
-            n="04"
-            title="Full visibility"
-            desc="Audit-grade logs: spend, request counts, tokens, and model breakdowns — ready for ops and finance."
-            icon={<Eye className="h-5 w-5 text-white" />}
-          />
+      <Section
+        id="how"
+        eyebrow="How it works"
+        title="Forsig enforces policy between your app and OpenAI"
+        subtitle="Enforcement travels with the allowance key: preflight checks, safe execution, and exact settlement for reporting."
+      >
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          <Card icon={<Zap className="h-5 w-5 text-white/80" />} title="Your app">
+            You call the model as usual.
+          </Card>
+          <Card icon={<Lock className="h-5 w-5 text-white/80" />} title="Forsig gateway">
+            Preflight budgets, velocity caps, and allowlists.
+          </Card>
+          <Card icon={<KeyRound className="h-5 w-5 text-white/80" />} title="OpenAI">
+            Request executes using your provider key.
+          </Card>
+          <Card icon={<Eye className="h-5 w-5 text-white/80" />} title="Audit trail">
+            Settle exact tokens & cost breakdowns.
+          </Card>
         </div>
 
-        <div className="mt-6 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-          <div className="ui-card p-6 sm:p-8">
+        <div className="mt-8 flex flex-wrap items-center justify-center gap-2 text-xs text-white/60">
+          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Budgets</span>
+          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Velocity caps</span>
+          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Model allowlist</span>
+          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Freeze</span>
+          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Kill switch</span>
+        </div>
+      </Section>
+
+      <Section
+        id="features"
+        eyebrow="Product"
+        title="Runtime guardrails for cost and control"
+        subtitle="Strong defaults, operator controls, and audit-ready visibility — without changing how your team builds."
+      >
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <Card icon={<Gauge className="h-5 w-5 text-white/80" />} title="Runtime enforcement">
+            Intercept every request and verify it against budgets, velocity caps, and allowlists before it runs.
+          </Card>
+          <Card icon={<Lock className="h-5 w-5 text-white/80" />} title="Instant operator controls">
+            Freeze an agent immediately when you see anomalies — or flip a kill switch during an incident.
+          </Card>
+          <Card icon={<KeyRound className="h-5 w-5 text-white/80" />} title="Allowance keys">
+            Issue scoped keys that carry policy with them. Rotate safely, revoke instantly, and share prefixes.
+          </Card>
+          <Card icon={<Eye className="h-5 w-5 text-white/80" />} title="Full visibility">
+            Audit-grade logs: spend, request counts, tokens, and model breakdowns — ready for ops and finance.
+          </Card>
+        </div>
+      </Section>
+
+      <Section
+        id="pricing"
+        eyebrow="Pricing"
+        title="Start free. Upgrade when you’re scaling."
+        subtitle="We’re onboarding early teams now. Join the waitlist to get access."
+      >
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
             <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-semibold text-white">
-                  Built for production
-                </div>
-                <div className="mt-1 text-sm text-zinc-400">
-                  Strong defaults + predictable controls — without dashboard bloat.
-                </div>
-              </div>
-              <span className="ui-pill">ops-ready</span>
+              <div className="text-lg font-semibold text-white">Starter</div>
+              <Pill>Early access</Pill>
             </div>
-
-            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+            <div className="mt-3 text-4xl font-semibold text-white">$0</div>
+            <div className="mt-2 text-sm text-white/60">For prototypes and early production.</div>
+            <ul className="mt-5 space-y-2 text-sm text-white/70">
               {[
-                { v: "Preflight", l: "Block early if policy fails" },
-                { v: "Exact settle", l: "No guessing on usage" },
-                { v: "Audit trail", l: "Per-model breakdowns" },
-              ].map((m) => (
-                <div
-                  key={m.v}
-                  className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"
-                >
-                  <div className="text-sm font-semibold text-white">{m.v}</div>
-                  <div className="mt-1 text-xs text-zinc-400">{m.l}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="ui-card p-6 sm:p-8">
-            <div className="text-sm font-semibold text-white">
-              Developer-friendly
-            </div>
-            <div className="mt-2 text-sm leading-6 text-zinc-400">
-              Minimal surface area. Policies live with keys. Integrate once, then
-              enforce everywhere.
-            </div>
-            <div className="mt-6 grid gap-2">
-              {[
-                "OpenAI-compatible interface",
-                "Works with your existing SDK",
-                "No rewrite required",
-                "Policies per agent",
+                "Allowance keys",
+                "Budgets + velocity caps",
+                "Audit logs",
+                "Freeze controls",
               ].map((x) => (
-                <div key={x} className="flex items-center gap-2 text-sm text-zinc-300">
-                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/10 bg-white/[0.04]">
-                    <Check className="h-3.5 w-3.5" />
-                  </span>
-                  {x}
-                </div>
+                <li key={x} className="flex items-center gap-2">
+                  <Check className="h-4 w-4 text-white/70" /> {x}
+                </li>
               ))}
-            </div>
+            </ul>
             <div className="mt-6">
-              <Link className="ui-btn ui-btn-primary w-full" href="/login">
-                Get started <ArrowRight className="h-4 w-4" />
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* PRICING (Zion: simple pricing grid) */}
-      <section id="pricing" className="ui-container py-14 sm:py-20">
-        <SectionHeader
-          eyebrow="Pricing"
-          title="Simple, transparent pricing"
-          subtitle="Start self-serve. Upgrade when you’re scaling workloads and ops needs."
-        />
-
-        <div className="mt-10 grid gap-4 lg:grid-cols-2">
-          <div className="ui-card ui-card-hover p-8">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-semibold text-white">Starter</div>
-                <div className="mt-1 text-sm text-zinc-400">
-                  For prototypes and early production.
-                </div>
-              </div>
-              <span className="ui-pill">self-serve</span>
-            </div>
-
-            <div className="mt-6 text-3xl font-semibold text-white">$0</div>
-            <div className="mt-1 text-sm text-zinc-500">
-              Core controls to ship safely.
-            </div>
-
-            <div className="mt-6 grid gap-2">
-              {["Allowance keys", "Budgets + velocity caps", "Audit logs", "Freeze controls"].map(
-                (x) => (
-                  <div key={x} className="flex items-center gap-2 text-sm text-zinc-300">
-                    <Check className="h-4 w-4" />
-                    <span>{x}</span>
-                  </div>
-                )
-              )}
-            </div>
-
-            <div className="mt-8">
-              <Link className="ui-btn ui-btn-primary w-full" href="/login">
-                Launch dashboard <ArrowRight className="h-4 w-4" />
-              </Link>
+              <a href="#waitlist" className={primaryBtn}>
+                Join waitlist <ArrowRight className="h-4 w-4" />
+              </a>
             </div>
           </div>
 
-          <div className="ui-card ui-card-hover p-8">
+          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
             <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-semibold text-white">Team</div>
-                <div className="mt-1 text-sm text-zinc-400">
-                  For companies scaling agent workloads.
-                </div>
-              </div>
-              <span className="ui-pill">contact</span>
+              <div className="text-lg font-semibold text-white">Team</div>
+              <Pill>Contact</Pill>
             </div>
-
-            <div className="mt-6 text-3xl font-semibold text-white">Custom</div>
-            <div className="mt-1 text-sm text-zinc-500">
+            <div className="mt-3 text-4xl font-semibold text-white">Custom</div>
+            <div className="mt-2 text-sm text-white/60">
               Higher limits, support, and production ops help.
             </div>
-
-            <div className="mt-6 grid gap-2">
-              {["Role-based access", "Exports & reporting", "SLA + support", "Deployment guidance"].map(
-                (x) => (
-                  <div key={x} className="flex items-center gap-2 text-sm text-zinc-300">
-                    <Check className="h-4 w-4" />
-                    <span>{x}</span>
-                  </div>
-                )
-              )}
-            </div>
-
-            <div className="mt-8">
-              <a className="ui-btn ui-btn-primary w-full" href="mailto:founders@forsig.com">
+            <ul className="mt-5 space-y-2 text-sm text-white/70">
+              {["Role-based access", "Exports & reporting", "SLA + support", "Deployment guidance"].map((x) => (
+                <li key={x} className="flex items-center gap-2">
+                  <Check className="h-4 w-4 text-white/70" /> {x}
+                </li>
+              ))}
+            </ul>
+            <div className="mt-6">
+              <Link href="/talk-to-founders" className={primaryBtn}>
                 Talk to founders <ArrowRight className="h-4 w-4" />
-              </a>
-            </div>
-          </div>
-        </div>
-
-        {/* Final CTA (Salus-style) */}
-        <div className="mt-10 ui-card p-8 sm:p-10">
-          <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-center">
-            <div>
-              <div className="text-2xl font-semibold tracking-tight text-white">
-                Ready to ship safer agents?
-              </div>
-              <p className="mt-2 text-sm leading-6 text-zinc-400">
-                Set budgets, mint allowance keys, and enforce guardrails at runtime —
-                with audit logs your team can trust.
-              </p>
-            </div>
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Link className="ui-btn ui-btn-primary px-6" href="/login">
-                Open dashboard <ArrowRight className="h-4 w-4" />
               </Link>
-              <a className="ui-btn px-6" href="mailto:founders@forsig.com">
-                Email founders@forsig.com
-              </a>
             </div>
           </div>
         </div>
+      </Section>
 
-        <footer className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-white/10 pt-6 text-xs text-zinc-500 sm:flex-row">
-          <div>© {new Date().getFullYear()} Forsig</div>
-          <div className="flex items-center gap-4">
-            <Link className="hover:text-zinc-300" href="/docs">
-              Docs
-            </Link>
-            <a className="hover:text-zinc-300" href="mailto:thenazmulkarim@gmail.com.com">
-              Contact
-            </a>
+      {/* Waitlist */}
+      <section id="waitlist" className="mx-auto max-w-6xl px-4 pb-24 pt-6">
+        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-8 backdrop-blur sm:p-10">
+          <div className="mx-auto max-w-2xl text-center">
+            <div className="mx-auto w-fit">
+              <Pill>
+                <Mail className="h-3.5 w-3.5" />
+                Waitlist
+              </Pill>
+            </div>
+            <h3 className="mt-4 text-3xl font-semibold text-white">
+              Get early access to Forsig
+            </h3>
+            <p className="mt-3 text-sm leading-6 text-white/70">
+              Invitation-only onboarding. We’ll email you when your spot is ready.
+            </p>
           </div>
+
+          <form
+            onSubmit={joinWaitlist}
+            className="mx-auto mt-8 grid max-w-2xl grid-cols-1 gap-3 sm:grid-cols-3"
+          >
+            <input
+              className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white placeholder:text-white/40 outline-none focus:border-white/20"
+              placeholder="Name (optional)"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <input
+              className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white placeholder:text-white/40 outline-none focus:border-white/20"
+              placeholder="Company (optional)"
+              value={company}
+              onChange={(e) => setCompany(e.target.value)}
+            />
+            <input
+              className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white placeholder:text-white/40 outline-none focus:border-white/20 sm:col-span-2"
+              placeholder="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className={cx(
+                primaryBtn,
+                "sm:col-span-1",
+                (!canSubmit || loading) && "opacity-60"
+              )}
+            >
+              {loading ? "Joining…" : "Join waitlist"}
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          </form>
+
+          {status ? (
+            <div
+              className={cx(
+                "mx-auto mt-4 max-w-2xl rounded-xl border px-4 py-3 text-sm",
+                status.ok
+                  ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-200"
+                  : "border-red-500/20 bg-red-500/10 text-red-200"
+              )}
+            >
+              {status.msg}
+            </div>
+          ) : null}
+
+          <div className="mt-8 flex flex-wrap items-center justify-center gap-2 text-xs text-white/55">
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">OpenAI ✅</span>
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Anthropic ⏳</span>
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">Google ⏳</span>
+          </div>
+        </div>
+
+        <footer className="mx-auto mt-10 max-w-6xl px-2 text-center text-xs text-white/50">
+          © {new Date().getFullYear()} Forsig ·{" "}
+          <Link className="underline hover:text-white" href="/docs">
+            Docs
+          </Link>{" "}
+          ·{" "}
+          <Link className="underline hover:text-white" href="/talk-to-founders">
+            Contact
+          </Link>
         </footer>
       </section>
     </main>

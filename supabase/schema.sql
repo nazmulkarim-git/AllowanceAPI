@@ -243,3 +243,52 @@ create table if not exists public.model_pricing_units (
   updated_at timestamptz not null default now(),
   primary key (model, modality, unit, tier, quality, size)
 );
+
+-- =========================================================
+-- Forsig: Waitlist + Founder inquiries + Forced password change
+-- =========================================================
+
+-- 1) Profiles: add must_change_password
+alter table public.profiles
+  add column if not exists must_change_password boolean not null default false;
+
+-- 2) Waitlist table
+create table if not exists public.waitlist (
+  id uuid primary key default gen_random_uuid(),
+  email text not null unique,
+  name text,
+  company text,
+  status text not null default 'pending', -- pending|approved|rejected
+  created_at timestamptz not null default now(),
+  approved_at timestamptz
+);
+
+-- Optional: store founder inquiries too (nice for tracking)
+create table if not exists public.founder_inquiries (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  email text not null,
+  phone text,
+  company text,
+  role text,
+  message text not null,
+  monthly_spend text,
+  created_at timestamptz not null default now()
+);
+
+-- Enable RLS (safe default)
+alter table public.waitlist enable row level security;
+alter table public.founder_inquiries enable row level security;
+
+-- Allow anonymous inserts into waitlist (no select/update)
+drop policy if exists waitlist_insert_any on public.waitlist;
+create policy waitlist_insert_any
+  on public.waitlist for insert
+  with check (true);
+
+-- Allow anonymous inserts into founder inquiries (no select/update)
+drop policy if exists founder_inquiries_insert_any on public.founder_inquiries;
+create policy founder_inquiries_insert_any
+  on public.founder_inquiries for insert
+  with check (true);
+
