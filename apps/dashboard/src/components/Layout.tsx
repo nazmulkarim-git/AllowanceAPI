@@ -81,8 +81,23 @@ export default function Layout({
             <button
               className="ui-btn"
               onClick={async () => {
-                await supabase.auth.signOut();
-                window.location.href = "/";
+                try {
+                  // Try normal signout first
+                  await supabase.auth.signOut({ scope: "global" as any });
+                } catch (e) {
+                  // ignore
+                } finally {
+                  // Hard reset: clear Supabase auth storage keys and reload
+                  try {
+                    for (const k of Object.keys(localStorage)) {
+                      if (k.startsWith("sb-")) localStorage.removeItem(k);
+                    }
+                    for (const k of Object.keys(sessionStorage)) {
+                      if (k.startsWith("sb-")) sessionStorage.removeItem(k);
+                    }
+                  } catch {}
+                  window.location.href = "/login";
+                }
               }}
               title="Sign out"
             >

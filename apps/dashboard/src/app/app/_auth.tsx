@@ -15,6 +15,7 @@ export function useSession() {
       if (!mounted) return;
 
       const s = data.session;
+      console.log("Logged in user ID:", s?.user?.id);
       setSession(s);
 
       if (!s) {
@@ -23,12 +24,10 @@ export function useSession() {
         return;
       }
 
-      // Gate: must change password
-      const userId = s.user.id;
       const { data: prof } = await supabase
         .from("profiles")
         .select("must_change_password")
-        .eq("id", userId)
+        .eq("id", s.user.id)
         .maybeSingle();
 
       if (prof?.must_change_password) {
