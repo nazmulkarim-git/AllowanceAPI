@@ -35,6 +35,13 @@ export default function AppHome() {
 
   async function load() {
     if (!userId) return;
+    // Ensure profile exists (required because agents.user_id FK references profiles.id)
+    await supabase.from("profiles").upsert({
+      id: userId,
+      email: session?.user?.email ?? "",
+      must_change_password: false,
+      is_admin: false,
+    });
     const p = await supabase.from("profiles").select("email,is_admin").eq("id", userId).maybeSingle();
     setProfile((p.data as any) ?? { email: session?.user?.email ?? "", is_admin: false });
 
