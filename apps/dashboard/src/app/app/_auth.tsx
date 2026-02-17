@@ -1,4 +1,3 @@
-// apps/dashboard/src/app/app/_auth.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -15,22 +14,24 @@ export function useSession() {
       const { data } = await supabase.auth.getSession();
       if (!mounted) return;
 
-      setSession(data.session);
-      if (!data.session) {
+      const s = data.session;
+      setSession(s);
+
+      if (!s) {
         setLoading(false);
         window.location.href = "/login";
         return;
       }
 
-      // Gate on must_change_password
-      const userId = data.session.user.id;
+      // Gate: must change password
+      const userId = s.user.id;
       const { data: prof } = await supabase
         .from("profiles")
         .select("must_change_password")
         .eq("id", userId)
         .maybeSingle();
 
-      if (prof?.must_change_password && window.location.pathname !== "/change-password") {
+      if (prof?.must_change_password) {
         setLoading(false);
         window.location.href = "/change-password";
         return;
@@ -43,18 +44,17 @@ export function useSession() {
 
     const { data: sub } = supabase.auth.onAuthStateChange(async (_evt, s) => {
       if (!mounted) return;
-
       setSession(s);
+
       if (!s) {
         window.location.href = "/login";
         return;
       }
 
-      const userId = s.user.id;
       const { data: prof } = await supabase
         .from("profiles")
         .select("must_change_password")
-        .eq("id", userId)
+        .eq("id", s.user.id)
         .maybeSingle();
 
       if (prof?.must_change_password && window.location.pathname !== "/change-password") {

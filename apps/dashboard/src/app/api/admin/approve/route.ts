@@ -1,112 +1,125 @@
-// apps/dashboard/src/app/api/admin/approve/route.ts
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/serverSupabase";
 import crypto from "crypto";
 
 function generateTempPassword() {
-  return crypto.randomBytes(8).toString("hex"); // 16 char secure password
+  return crypto.randomBytes(10).toString("base64url");
+}
+function isEmail(s: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 }
 
 export async function POST(req: Request) {
   try {
     const ADMIN_SECRET = process.env.ADMIN_SECRET;
-    const RESEND_API_KEY = process.env.RESEND_API_KEY;
-    const FROM = process.env.RESEND_FROM || "Forsig <founders@forsig.com>";
-
     const authHeader = req.headers.get("authorization");
     if (!ADMIN_SECRET || authHeader !== `Bearer ${ADMIN_SECRET}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json({ error: { message: "Unauthorized" } }, { status: 401 });
     }
 
-    const { email } = await req.json();
-    if (!email) {
-      return NextResponse.json(
-        { error: { message: "Email required" } },
-        { status: 400 }
-      );
+    const body = await req.json();
+    const email = String(body?.email || "").trim().toLowerCase();
+    if (!email || !isEmail(email)) {
+      return NextResponse.json({ error: { message: "Valid email required" } }, { status: 400 });
     }
 
     const svc = supabaseAdmin();
 
-    // Check waitlist entry
-    const { data: wl } = await svc
+    const { data: wl, error: wlErr } = await svc
       .from("waitlist")
       .select("*")
       .eq("email", email)
       .maybeSingle();
 
-    if (!wl) {
-      return NextResponse.json(
-        { error: { message: "Email not found in waitlist" } },
-        { status: 404 }
-      );
-    }
+    if (wlErr) return NextResponse.json({ error: { message: wlErr.message } }, { status: 500 });
+    if (!wl) return NextResponse.json({ error: { message: "Email not found in waitlist" } }, { status: 404 });
 
     const tempPassword = generateTempPassword();
 
-    // Create Supabase Auth user
-    const { data: userData, error: userError } =
-      await svc.auth.admin.createUser({
-        email,
-        password: tempPassword,
-        email_confirm: true,
-      });
-
+    const { data: userData, error: userError } = await svc.auth.admin.createUser({
+      email,
+      password: tempPassword,
+      email_confirm: true,
+    });
     if (userError) {
-      return NextResponse.json(
-        { error: { message: userError.message } },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: { message: userError.message } }, { status: 500 });
     }
 
     const userId = userData.user.id;
 
-    // Update profile flag
-    await svc.from("profiles").update({
-      must_change_password: true,
-    }).eq("id", userId);
+    // IMPORTANT: ensure profiles row exists (upsert)
+    const { error: profErr } = await svc.from("profiles").upsert(
+      {
+        id: userId,
+        email,
+        is_admin: false,
+        must_change_password: true,
+      },
+      { onConflict: "id" }
+    );
+    if (profErr) {
+      return NextResponse.json({ error: { message: profErr.message } }, { status: 500 });
+    }
 
-    // Mark waitlist approved
-    await svc.from("waitlist").update({
-      status: "approved",
-      approved_at: new Date().toISOString(),
-    }).eq("email", email);
+    const { error: apprErr } = await svc
+      .from("waitlist")
+      .update({ status: "approved", approved_at: new Date().toISOString() })
+      .eq("email", email);
+    if (apprErr) {
+      return NextResponse.json({ error: { message: apprErr.message } }, { status: 500 });
+    }
 
-    // Send email with temp password
-    if (RESEND_API_KEY) {
-      await fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${RESEND_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          from: FROM,
-          to: [email],
-          subject: "Your Forsig Access",
-          text: `
-Hi,
+    // Email temp password
+    const RESEND_API_KEY = process.env.RESEND_API_KEY;
+    const FROM = process.env.RESEND_FROM || "Forsig <founders@forsig.com>";
+    const loginUrl = process.env.PUBLIC_LOGIN_URL || "https://forsig.com/login";
 
-You've been approved for early access to Forsig.
-
-Login: https://forsig.com/login
-Email: ${email}
-Temporary Password: ${tempPassword}
-
-You will be required to change your password on first login.
-
-— Forsig Team
-          `,
-        }),
+    if (!RESEND_API_KEY) {
+      return NextResponse.json({
+        ok: true,
+        email_sent: false,
+        warning: "RESEND_API_KEY missing. User created, but email not sent.",
+        temp_password: tempPassword,
       });
     }
 
-    return NextResponse.json({ ok: true });
+    const subject = "Your Forsig access (temporary password)";
+    const text = [
+      `Hi,`,
+      ``,
+      `You're approved for Forsig early access.`,
+      ``,
+      `Login: ${loginUrl}`,
+      `Email: ${email}`,
+      `Temporary password: ${tempPassword}`,
+      ``,
+      `You'll be required to change your password on first login.`,
+      ``,
+      `— Forsig`,
+    ].join("\n");
 
+    const resp = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ from: FROM, to: [email], subject, text }),
+    });
+
+    const respText = await resp.text();
+    if (!resp.ok) {
+      return NextResponse.json(
+        {
+          error: { message: `Resend failed (${resp.status}).`, details: respText },
+          temp_password: tempPassword,
+        },
+        { status: 502 }
+      );
+    }
+
+    return NextResponse.json({ ok: true, email_sent: true });
   } catch (e: any) {
-    return NextResponse.json(
-      { error: { message: String(e?.message || e) } },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: { message: String(e?.message || e) } }, { status: 500 });
   }
 }
