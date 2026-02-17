@@ -66,8 +66,18 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
   async function load() {
     if (!userId) return;
 
-    const p = await supabase.from("profiles").select("email,is_admin").eq("id", userId).single();
-    setProfile(p.data as any);
+    const p = await supabase
+      .from("profiles")
+      .select("email,is_admin")
+      .eq("id", userId)
+      .maybeSingle();
+
+    setProfile(
+      (p.data as any) ?? {
+        email: session?.user?.email ?? "",
+        is_admin: false,
+      }
+    );
 
     const a = await supabase.from("agents").select("id,name,status").eq("id", params.id).single();
     if (a.error) return;
@@ -102,8 +112,21 @@ export default function AgentDetail({ params }: { params: { id: string } }) {
       setLastKeyRevokedAt(null);
     }
 
-    const sum = await supabase.from("agent_spend_summary").select("*").eq("agent_id", params.id).single();
-    if (!sum.error) setAuditSummary(sum.data);
+    const sum = await supabase
+      .from("agent_spend_summary")
+      .select("*")
+      .eq("agent_id", params.id)
+      .maybeSingle();
+
+    setAuditSummary(
+      sum.data ?? {
+        agent_id: params.id,
+        request_count: 0,
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        cost_cents: 0,
+      }
+    );
 
     const byModel = await supabase
       .from("agent_spend_by_model")

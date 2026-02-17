@@ -10,6 +10,30 @@ function isEmail(s: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 }
 
+function isAlreadyRegisteredError(err: any) {
+  const msg = String(err?.message || "").toLowerCase();
+  const code = String(err?.code || "").toLowerCase();
+  return (
+    /already.*register/.test(msg) || // matches: already registered / already been registered
+    code === "email_exists" ||
+    code === "user_already_exists"
+  );
+}
+
+async function findUserIdByEmail(svc: ReturnType<typeof supabaseAdmin>, email: string) {
+  // listUsers is paginated; search a few pages safely
+  for (let page = 1; page <= 10; page++) {
+    const { data, error } = await (svc.auth.admin as any).listUsers({ page, perPage: 1000 });
+    if (error) throw error;
+
+    const found = data?.users?.find((u: any) => String(u.email || "").toLowerCase() === email);
+    if (found?.id) return found.id;
+
+    if (!data?.users?.length || data.users.length < 1000) break; // no more pages
+  }
+  return null;
+}
+
 export async function POST(req: Request) {
   try {
     const ADMIN_SECRET = process.env.ADMIN_SECRET;
@@ -31,7 +55,7 @@ export async function POST(req: Request) {
 
     let userId: string | null = null;
 
-    // Try creating user first
+    // 1) Try create user
     const { data: created, error: createErr } = await svc.auth.admin.createUser({
       email,
       password: tempPassword,
@@ -39,53 +63,37 @@ export async function POST(req: Request) {
     });
 
     if (createErr) {
-      // If user already exists, fetch from listUsers
-      if (createErr.message.includes("already registered")) {
-        const { data: usersData } = await svc.auth.admin.listUsers();
+      // 2) If user already exists, find them & reset password
+      if (isAlreadyRegisteredError(createErr)) {
+        userId = await findUserIdByEmail(svc, email);
 
-        const existingUser = usersData?.users?.find(
-          (u: any) => u.email?.toLowerCase() === email
-        );
-
-        if (!existingUser) {
+        if (!userId) {
           return NextResponse.json(
-            { error: { message: "User exists but could not fetch from auth" } },
+            { error: { message: "User exists in auth but could not locate via listUsers()." } },
             { status: 500 }
           );
         }
 
-        userId = existingUser.id;
-
-        // Reset password
         const { error: resetErr } = await svc.auth.admin.updateUserById(userId, {
           password: tempPassword,
           email_confirm: true,
         });
 
         if (resetErr) {
-          return NextResponse.json(
-            { error: { message: resetErr.message } },
-            { status: 500 }
-          );
+          return NextResponse.json({ error: { message: resetErr.message } }, { status: 500 });
         }
       } else {
-        return NextResponse.json(
-          { error: { message: createErr.message } },
-          { status: 500 }
-        );
+        return NextResponse.json({ error: { message: createErr.message } }, { status: 500 });
       }
     } else {
       userId = created.user.id;
     }
 
     if (!userId) {
-      return NextResponse.json(
-        { error: { message: "User ID not resolved" } },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: { message: "User ID not resolved" } }, { status: 500 });
     }
 
-    // Ensure profile exists
+    // Ensure profile exists (server role bypasses RLS)
     await svc.from("profiles").upsert(
       {
         id: userId,
@@ -96,7 +104,7 @@ export async function POST(req: Request) {
       { onConflict: "id" }
     );
 
-    // Approve waitlist
+    // Approve waitlist row
     await svc.from("waitlist").upsert(
       {
         email,
@@ -106,17 +114,14 @@ export async function POST(req: Request) {
       { onConflict: "email" }
     );
 
-    // Send email (optional)
+    // Send email (Resend)
     const RESEND_API_KEY = process.env.RESEND_API_KEY;
     const FROM = process.env.RESEND_FROM || "Forsig <founders@forsig.com>";
     const loginUrl = process.env.PUBLIC_LOGIN_URL || "https://forsig.com/login";
 
+    // If Resend not configured, still succeed, return temp password for debugging
     if (!RESEND_API_KEY) {
-      return NextResponse.json({
-        ok: true,
-        email_sent: false,
-        temp_password: tempPassword,
-      });
+      return NextResponse.json({ ok: true, email_sent: false, temp_password: tempPassword });
     }
 
     const resp = await fetch("https://api.resend.com/emails", {
@@ -129,8 +134,7 @@ export async function POST(req: Request) {
         from: FROM,
         to: [email],
         subject: "Your Forsig access",
-        text: `
-You've been approved.
+        text: `You've been approved.
 
 Login: ${loginUrl}
 Email: ${email}
@@ -138,13 +142,11 @@ Temporary password: ${tempPassword}
 
 You'll be required to change your password on first login.
 
-— Forsig
-        `,
+— Forsig`,
       }),
     });
 
     const respText = await resp.text();
-
     if (!resp.ok) {
       return NextResponse.json({
         ok: true,
@@ -155,7 +157,6 @@ You'll be required to change your password on first login.
     }
 
     return NextResponse.json({ ok: true, email_sent: true });
-
   } catch (e: any) {
     return NextResponse.json(
       { error: { message: String(e?.message || e) } },

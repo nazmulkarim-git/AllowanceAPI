@@ -35,8 +35,18 @@ export default function AppHome() {
 
   async function load() {
     if (!userId) return;
-    const p = await supabase.from("profiles").select("email,is_admin").eq("id", userId).single();
-    setProfile(p.data as any);
+    const p = await supabase
+      .from("profiles")
+      .select("email,is_admin")
+      .eq("id", userId)
+      .maybeSingle();
+
+    setProfile(
+      (p.data as any) ?? {
+        email: session?.user?.email ?? "",
+        is_admin: false,
+      }
+    );
 
     const { data, error } = await supabase
       .from("agents")
